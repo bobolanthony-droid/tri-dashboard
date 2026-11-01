@@ -1,0 +1,59 @@
+name: Daily dashboard
+
+on:
+  schedule:
+    - cron: "0 5 * * *"   # 05:00 UTC every day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: dashboard
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+      INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+      DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Restore encrypted data cache
+        uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: icu-data-${{ github.run_id }}
+          restore-keys: icu-data-
+
+      - run: python cache_crypt.py unpack
+      - run: python sync.py
+      - run: python build.py
+      - run: python cache_crypt.py pack
+
+      - name: Save encrypted data cache
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: icu-data-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

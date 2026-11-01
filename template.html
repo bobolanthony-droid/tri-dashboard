@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0d0d0d">
+<title>Tri Training Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --swim: #3987e5; --bike: #d95926; --run: #199e70; --padel: #c98500; --other: #9085e9;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --accent: #3987e5;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); }
+body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+main { max-width: 760px; margin: 0 auto; padding: 12px 16px 64px; }
+h1 { font-size: 20px; margin: 4px 0 2px; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+h3 { font-size: 14px; margin: 14px 0 6px; color: var(--ink-2); font-weight: 600; }
+p { margin: 6px 0; }
+.sub { color: var(--muted); font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px; margin: 12px 0; min-width: 0; }
+.chart { position: relative; height: 220px; width: 100%; }
+.chart.tall { height: 260px; }
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.kpi .l { color: var(--muted); font-size: 12px; }
+.kpi .v { font-size: 22px; font-weight: 650; margin-top: 2px; }
+.kpi .s { color: var(--ink-2); font-size: 12px; }
+.controls { padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.chip { appearance: none; border: 1px solid var(--axis); background: transparent; color: var(--ink-2); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; min-height: 32px; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--page); border-color: var(--ink); font-weight: 600; }
+.chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.sep { width: 1px; height: 22px; background: var(--axis); margin: 0 2px; }
+details.custom { font-size: 13px; color: var(--ink-2); }
+details.custom summary { cursor: pointer; padding: 4px 0; }
+input[type=date], input[type=password] { background: var(--surface-2); color: var(--ink); border: 1px solid var(--axis); border-radius: 8px; padding: 8px; font: inherit; max-width: 100%; }
+.explain { display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.explain b { color: var(--ink); }
+.list { list-style: none; padding: 0; margin: 6px 0 0; }
+.list li { display: flex; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--grid); font-size: 14px; min-width: 0; }
+.list li .d { color: var(--muted); font-size: 12px; flex: 0 0 52px; font-variant-numeric: tabular-nums; }
+.list li .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pill { flex: 0 0 auto; font-size: 12px; border-radius: 999px; padding: 2px 8px; border: 1px solid currentColor; white-space: nowrap; }
+.st-good { color: var(--good); } .st-warning { color: var(--warning); } .st-serious { color: var(--serious); } .st-critical { color: var(--critical); } .st-muted { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: right; padding: 7px 4px; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+td { white-space: nowrap; }
+#swimTable { font-size: 13px; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: none; }
+tr.total td { font-weight: 700; border-top: 1px solid var(--axis); }
+tr.weak td:first-child::after { content: " · weakest link"; color: var(--warning); font-weight: 600; font-size: 12px; }
+.small { font-size: 12px; color: var(--muted); }
+ul.notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+ul.notes li { margin: 3px 0; }
+.hidden { display: none !important; }
+#lock { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#lock form { width: 100%; max-width: 340px; background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 20px; display: grid; gap: 10px; }
+#lock button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 10px; font: inherit; font-weight: 600; cursor: pointer; }
+#lock .err { color: var(--critical); font-size: 13px; min-height: 1em; }
+a { color: var(--accent); }
+.empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div id="lock">
+  <form id="lockForm" autocomplete="off">
+    <h1>Tri dashboard</h1>
+    <p class="sub">Enter the dashboard password. Data is decrypted on this device only.</p>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" required>
+    <label class="sub"><input id="remember" type="checkbox" checked> Remember on this device</label>
+    <button type="submit">Unlock</button>
+    <div class="err" id="lockErr"></div>
+  </form>
+</div>
+
+<main id="app" class="hidden">
+  <header>
+    <h1>Olympic tri · road to sub-3:00</h1>
+    <div class="sub" id="meta"></div>
+  </header>
+
+  <div class="controls">
+    <div class="row" id="rangeChips"></div>
+    <div class="row" id="sportChips"></div>
+    <div class="row"><span id="granChips" class="row" style="margin:0"></span>
+      <details class="custom"><summary>Custom dates</summary>
+        <div class="row"><input type="date" id="from" aria-label="From"> <span>to</span> <input type="date" id="to" aria-label="To"></div>
+      </details>
+    </div>
+  </div>
+
+  <section class="kpis" id="kpis" style="margin-top:12px"></section>
+
+  <section class="card" id="sec-progress">
+    <h2>Progression</h2>
+    <h3 id="hoursTitle">Hours by sport</h3>
+    <div class="chart"><canvas id="cHours"></canvas></div>
+    <h3 id="loadTitle">Training load by sport</h3>
+    <div class="chart"><canvas id="cLoad"></canvas></div>
+    <h3>Fitness and fatigue</h3>
+    <div class="explain">
+      <div><b>Fitness (CTL)</b> – your 42-day average daily training load. It rises slowly as you build; this is the number to grow toward race day.</div>
+      <div><b>Fatigue (ATL)</b> – your 7-day average daily load. It reacts fast to hard weeks and drops fast with rest.</div>
+      <div><b>Form (TSB)</b> = fitness − fatigue. Negative means you are carrying fatigue from training (normal in build weeks; below −30 is a lot). Around 0 to +15 on race day means fresh.</div>
+      <div><b>Ramp flag</b> – a week where fitness rises by 5 or more. That is a steep build; sustained, it raises injury and illness risk.</div>
+    </div>
+    <div class="chart"><canvas id="cCtl"></canvas></div>
+    <h3>Form (TSB)</h3>
+    <div class="chart"><canvas id="cTsb"></canvas></div>
+    <h3>Weekly change in fitness</h3>
+    <div class="chart"><canvas id="cRamp"></canvas></div>
+    <ul class="list" id="rampList"></ul>
+  </section>
+
+  <section class="card" id="sec-plan">
+    <h2>Plan compliance</h2>
+    <p class="sub" id="planSummary"></p>
+    <ul class="list" id="planList"></ul>
+    <p class="small" id="planNote"></p>
+  </section>
+
+  <section class="card" id="sec-swim">
+    <h2>Swim</h2>
+    <div id="cssBox"></div>
+    <h3>Pace per 100 m: swimming lengths vs. average incl. rests</h3>
+    <div class="chart"><canvas id="cSwim"></canvas></div>
+    <p class="small">"Swimming lengths" keeps only lengths you actually swam; lengths more than 35% slower than the session's median length (wall rests folded in by the watch) and rest intervals are removed. Open-water swims have no wall rests, so the two values differ only by pauses (moving vs elapsed time).</p>
+    <table id="swimTable"></table>
+  </section>
+
+  <section class="card" id="sec-bike">
+    <h2>Bike</h2>
+    <h3>FTP over time</h3>
+    <div class="chart"><canvas id="cFtp"></canvas></div>
+    <p class="small" id="ftpNote"></p>
+    <h3>Power curve</h3>
+    <div class="chart"><canvas id="cPower"></canvas></div>
+    <h3>Efficiency factor (normalised power ÷ heart rate)</h3>
+    <div class="chart"><canvas id="cEf"></canvas></div>
+    <h3>Aerobic drift (power:HR decoupling)</h3>
+    <div class="chart"><canvas id="cDrift"></canvas></div>
+    <p class="small">EF: higher = more watts per heartbeat; compare similar steady rides. Drift: how much HR rose relative to power from the first to the second half; under 5% indicates good aerobic durability for that duration. Only rides with both power and HR appear.</p>
+  </section>
+
+  <section class="card" id="sec-run">
+    <h2>Run</h2>
+    <h3>Pace vs heart rate, per run</h3>
+    <div class="chart tall"><canvas id="cRunScatter"></canvas></div>
+    <h3>Running efficiency over time (metres per heartbeat)</h3>
+    <div class="chart"><canvas id="cRunEff"></canvas></div>
+    <p class="small" id="runNote"></p>
+  </section>
+
+  <section class="card" id="sec-recovery">
+    <h2>Recovery</h2>
+    <h3>Resting heart rate vs 28-day baseline</h3>
+    <div class="chart"><canvas id="cRhr"></canvas></div>
+    <h3>Sleep vs 28-day baseline</h3>
+    <div class="chart"><canvas id="cSleep"></canvas></div>
+    <p class="small">Baseline = average of the previous 28 days (needs at least 7 days). A resting HR 5+ bpm above baseline or sleep well under baseline for several days suggests easing off.</p>
+  </section>
+
+  <section class="card" id="sec-proj">
+    <h2>Olympic race projection</h2>
+    <p class="sub" id="projSub"></p>
+    <table id="projTable"></table>
+    <h3>Assumptions</h3>
+    <ul class="notes" id="projAssume"></ul>
+    <h3>Cross-checks</h3>
+    <ul class="notes" id="projCross"></ul>
+  </section>
+
+  <section class="card" id="sec-flags">
+    <h2>Data quality</h2>
+    <div class="row" id="flagCounts"></div>
+    <ul class="list" id="flagList"></ul>
+  </section>
+
+  <p class="small" style="text-align:center"><button class="chip" id="lockBtn" type="button">Lock &amp; forget password on this device</button></p>
+</main>
+
+<script>
+const BLOB = /*__BLOB__*/null;
+const SPORTS = ["Swim", "Bike", "Run", "Padel", "Other"];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COL = {};
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+
+// ---------- decrypt ----------
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function decrypt(pw) {
+  const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(BLOB.salt), iterations: BLOB.iter, hash: "SHA-256" },
+    km, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(BLOB.iv) }, key, b64(BLOB.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function unlock(pw, remember) {
+  const data = await decrypt(pw);
+  if (remember) store.set("tri_pw", pw);
+  document.getElementById("lock").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  start(data);
+}
+document.getElementById("lockForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const err = document.getElementById("lockErr");
+  err.textContent = "Unlocking…";
+  try { await unlock(document.getElementById("pw").value, document.getElementById("remember").checked); }
+  catch (x) { err.textContent = "Wrong password (or the page was rebuilt with a new one)."; }
+});
+document.getElementById("lockBtn").addEventListener("click", () => { store.del("tri_pw"); location.reload(); });
+(async () => {
+  const saved = store.get("tri_pw");
+  if (saved) { try { await unlock(saved, true); } catch (e) { store.del("tri_pw"); } }
+})();
+
+// ---------- helpers ----------
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const iso = dt => dt.toISOString().slice(0, 10);
+const addDays = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return iso(x); };
+const fmtD = d => `${+d.slice(8, 10)} ${MON[+d.slice(5, 7) - 1]}`;
+const fmtPace = s => s == null || !isFinite(s) ? "–" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`.replace(/:60$/, ":59");
+const fmtHMS = s => { if (s == null || !isFinite(s)) return "–"; s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(x).padStart(2, "0")}`; };
+const fmtDelta = s => (s >= 0 ? "+" : "−") + fmtHMS(Math.abs(s));
+const monday = d => { const x = new Date(d + "T00:00:00Z"); const wd = (x.getUTCDay() + 6) % 7; x.setUTCDate(x.getUTCDate() - wd); return iso(x); };
+const periodKey = d => S.gran === "week" ? monday(d) : d.slice(0, 7);
+const periodLabel = k => S.gran === "week" ? fmtD(k) : `${MON[+k.slice(5, 7) - 1]} ${k.slice(2, 4)}`;
+function periods() {
+  const out = [];
+  if (S.gran === "week") { for (let k = monday(S.from); k <= S.to; k = addDays(k, 7)) out.push(k); }
+  else { let [y, m] = S.from.slice(0, 7).split("-").map(Number); const end = S.to.slice(0, 7);
+    while (true) { const k = `${y}-${String(m).padStart(2, "0")}`; if (k > end) break; out.push(k); if (++m > 12) { m = 1; y++; } } }
+  return out;
+}
+const days = () => { const out = []; for (let d = S.from; d <= S.to; d = addDays(d, 1)) out.push(d); return out; };
+const inRange = d => d >= S.from && d <= S.to;
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? e.className = v : k === "style" ? e.style.cssText = v : e.setAttribute(k, v);
+  for (const c of kids) if (c != null) e.append(c.nodeType ? c : document.createTextNode(c)); return e; };
+const clear = id => { const e = document.getElementById(id); e.replaceChildren(); return e; };
+
+const charts = {};
+function mk(id, cfg) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), cfg);
+}
+function opts(extra = {}) {
+  const o = {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    events: ["mousemove", "mouseout", "click", "touchstart", "touchmove"],
+    plugins: {
+      legend: { position: "bottom", labels: { usePointStyle: true, pointStyle: "rectRounded", boxWidth: 8, boxHeight: 8, color: COL.ink2, padding: 12 } },
+      tooltip: { backgroundColor: "#0b0b0b", borderColor: COL.axis, borderWidth: 1, titleColor: COL.ink, bodyColor: COL.ink2, padding: 10, displayColors: true, boxPadding: 4 },
+    },
+    scales: {
+      x: { grid: { display: false }, border: { color: COL.axis }, ticks: { color: COL.muted, maxRotation: 0, autoSkipPadding: 12 } },
+      y: { grid: { color: COL.grid }, border: { display: false }, ticks: { color: COL.muted, maxTicksLimit: 6 } },
+    },
+  };
+  return deepMerge(o, extra);
+}
+function deepMerge(a, b) { for (const [k, v] of Object.entries(b)) { if (v && typeof v === "object" && !Array.isArray(v) && typeof v !== "function" && a[k] && typeof a[k] === "object") deepMerge(a[k], v); else a[k] = v; } return a; }
+const bar = (label, data, color, more = {}) => ({ type: "bar", label, data, backgroundColor: color, borderColor: COL.surface, borderWidth: 1, borderRadius: 4, borderSkipped: "start", maxBarThickness: 28, ...more });
+const line = (label, data, color, more = {}) => ({ type: "line", label, data, borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 0, pointHitRadius: 10, tension: 0.25, spanGaps: true, ...more });
+function showEmpty(id, isEmpty, msg = "No data in this range") {
+  const wrap = document.getElementById(id).parentElement;
+  let note = wrap.querySelector(".empty");
+  if (isEmpty) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } document.getElementById(id).style.display = "none";
+    if (!note) { note = el("div", { class: "empty" }); wrap.append(note); } note.textContent = msg; }
+  else { document.getElementById(id).style.display = ""; if (note) note.remove(); }
+  return isEmpty;
+}
+
+// ---------- state ----------
+let D;
+const S = { range: "all", from: null, to: null, sports: new Set(SPORTS), gran: "week" };
+const RANGES = [["4w", "4 weeks", 28], ["8w", "8 weeks", 56], ["12w", "12 weeks", 84], ["all", "All", null]];
+
+function start(data) {
+  D = data;
+  Object.assign(COL, { ink: css("--ink"), ink2: css("--ink-2"), muted: css("--muted"), grid: css("--grid"), axis: css("--axis"),
+    surface: css("--surface"), good: css("--good"), warning: css("--warning"), serious: css("--serious"), critical: css("--critical"), accent: css("--accent"),
+    Swim: css("--swim"), Bike: css("--bike"), Run: css("--run"), Padel: css("--padel"), Other: css("--other") });
+  Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = COL.muted;
+  try { const s = JSON.parse(store.get("tri_state") || "{}"); if (s.range) S.range = s.range; if (s.gran) S.gran = s.gran; if (s.sports) S.sports = new Set(s.sports); } catch (e) {}
+  D.first = [...D.acts.map(a => a.d), ...D.well.map(w => w.d)].sort()[0] || D.today;
+  setRange(S.range, false);
+  buildControls();
+  const m = document.getElementById("meta");
+  const wk = Math.ceil((new Date(D.race.date) - new Date(D.today)) / 6048e5);
+  m.textContent = `Race ~${fmtD(D.race.date)} 2027 · ${wk} weeks to go · data synced ${D.lastSync ? D.lastSync.replace("T", " ").replace("Z", " UTC") : D.generated}`;
+  render();
+}
+function setRange(r, rerender = true) {
+  S.range = r;
+  const def = RANGES.find(x => x[0] === r);
+  S.to = D.today;
+  S.from = def && def[2] ? addDays(D.today, -def[2] + 1) : D.first;
+  if (S.from < D.first) S.from = D.first;
+  document.getElementById("from").value = S.from; document.getElementById("to").value = S.to;
+  if (rerender) { save(); buildControls(); render(); }
+}
+function save() { store.set("tri_state", JSON.stringify({ range: S.range, gran: S.gran, sports: [...S.sports] })); }
+function chip(label, pressed, onClick, color) {
+  const b = el("button", { class: "chip", type: "button", "aria-pressed": String(pressed) });
+  if (color) b.append(el("span", { class: "dot", style: `background:${color}` }));
+  b.append(label); b.addEventListener("click", onClick); return b;
+}
+function buildControls() {
+  const r = clear("rangeChips");
+  for (const [k, label] of RANGES) r.append(chip(label, S.range === k, () => setRange(k)));
+  const s = clear("sportChips");
+  const all = S.sports.size === SPORTS.length;
+  s.append(chip("All sports", all, () => { S.sports = new Set(SPORTS); save(); buildControls(); render(); }));
+  for (const sp of SPORTS.slice(0, 4)) s.append(chip(sp, !all && S.sports.has(sp), () => {
+    if (all) S.sports = new Set([sp]); else S.sports.has(sp) ? S.sports.delete(sp) : S.sports.add(sp);
+    if (!S.sports.size) S.sports = new Set(SPORTS);
+    save(); buildControls(); render(); }, COL[sp]));
+  const g = clear("granChips");
+  g.append(chip("Weekly", S.gran === "week", () => { S.gran = "week"; save(); buildControls(); render(); }));
+  g.append(chip("Monthly", S.gran === "month", () => { S.gran = "month"; save(); buildControls(); render(); }));
+}
+for (const id of ["from", "to"]) document.getElementById(id).addEventListener("change", () => {
+  const f = document.getElementById("from").value, t = document.getElementById("to").value;
+  if (f && t && f <= t) { S.from = f; S.to = t; S.range = "custom"; buildControls(); render(); }
+});
+
+// ---------- render ----------
+function render() {
+  const acts = D.acts.filter(a => inRange(a.d) && S.sports.has(a.sport));
+  const well = D.well.filter(w => inRange(w.d));
+  document.getElementById("sec-swim").classList.toggle("hidden", !S.sports.has("Swim"));
+  document.getElementById("sec-bike").classList.toggle("hidden", !S.sports.has("Bike"));
+  document.getElementById("sec-run").classList.toggle("hidden", !S.sports.has("Run"));
+  renderKpis(acts);
+  renderProgress(acts, well);
+  renderPlan();
+  if (S.sports.has("Swim")) renderSwim(acts.filter(a => a.sport === "Swim"));
+  if (S.sports.has("Bike")) renderBike(acts.filter(a => a.sport === "Bike"), well);
+  if (S.sports.has("Run")) renderRun(acts.filter(a => a.sport === "Run"));
+  renderRecovery();
+  renderProjection();
+  renderFlags();
+}
+
+function latestWell() { return [...D.well].reverse().find(w => w.ctl != null); }
+function projTotal() { const L = D.projection.legs; return Object.values(L).every(v => v != null) ? Object.values(L).reduce((a, b) => a + b, 0) : null; }
+
+function renderKpis(acts) {
+  const k = clear("kpis");
+  const w = latestWell();
+  const hrs = acts.reduce((s, a) => s + a.mov, 0) / 3600;
+  const nWeeks = Math.max(1, (new Date(S.to) - new Date(S.from)) / 6048e5);
+  const tot = projTotal();
+  const tile = (l, v, s, cls = "") => el("div", { class: "kpi" }, el("div", { class: "l" }, l), el("div", { class: "v " + cls }, v), el("div", { class: "s" }, s));
+  k.append(tile("Fitness · CTL", w ? w.ctl.toFixed(0) : "–", w ? `fatigue ${w.atl.toFixed(0)} · form ${(w.ctl - w.atl).toFixed(0)}` : ""));
+  k.append(tile("Projected Olympic", tot ? fmtHMS(tot) : "–", tot ? `${fmtDelta(tot - D.race.goal)} vs 3:00:00` : "", tot && tot <= D.race.goal ? "st-good" : ""));
+  k.append(tile("Training in range", `${hrs.toFixed(1)} h`, `${(hrs / nWeeks).toFixed(1)} h/week · ${acts.length} sessions`));
+  const past = D.plan.filter(p => p.d < D.today && inRange(p.d) && S.sports.has(p.sport));
+  const done = past.filter(p => p.status.startsWith("done")).length;
+  k.append(tile("Plan done on the day", past.length ? `${Math.round(100 * done / past.length)}%` : "–", past.length ? `${done} of ${past.length} planned sessions` : "no planned sessions in range"));
+}
+
+function renderProgress(acts, well) {
+  const P = periods();
+  const sports = SPORTS.filter(s => S.sports.has(s) && D.acts.some(a => a.sport === s));
+  const agg = (f) => sports.map(sp => {
+    const m = Object.fromEntries(P.map(k => [k, 0]));
+    for (const a of acts) if (a.sport === sp) { const k = periodKey(a.d); if (k in m) m[k] += f(a) || 0; }
+    return bar(sp, P.map(k => +m[k].toFixed(2)), COL[sp], { stack: "s" });
+  });
+  const unit = S.gran === "week" ? "week" : "month";
+  document.getElementById("hoursTitle").textContent = `Hours by sport, per ${unit}`;
+  document.getElementById("loadTitle").textContent = `Training load by sport, per ${unit}`;
+  const stackOpts = (fmt) => opts({ scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: fmt } } },
+    plugins: { tooltip: { callbacks: {
+      title: it => (S.gran === "week" ? "Week of " : "") + it[0].label,
+      label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}`,
+      footer: it => `Total: ${fmt(it.reduce((s, c) => s + c.parsed.y, 0))}` } } } });
+  const fmtH = v => { const m = Math.round(v * 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`; };
+  if (!showEmpty("cHours", !acts.length)) mk("cHours", { data: { labels: P.map(periodLabel), datasets: agg(a => a.mov / 3600) }, options: stackOpts(fmtH) });
+  if (!showEmpty("cLoad", !acts.length)) mk("cLoad", { data: { labels: P.map(periodLabel), datasets: agg(a => a.load) }, options: stackOpts(v => Math.round(v)) });
+
+  const dd = days(), wm = Object.fromEntries(D.well.map(w => [w.d, w]));
+  const ctl = dd.map(d => wm[d]?.ctl ?? null), atl = dd.map(d => wm[d]?.atl ?? null);
+  const noWell = !well.some(w => w.ctl != null);
+  const r1 = v => v == null ? "–" : v.toFixed(1);
+  if (!showEmpty("cCtl", noWell)) mk("cCtl", { data: { labels: dd.map(fmtD), datasets: [
+      line("Fitness (CTL)", ctl, COL.Swim), line("Fatigue (ATL)", atl, "#d55181", { borderDash: [5, 3] })] },
+    options: opts({ plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${r1(c.parsed.y)}` } } } }) });
+  const tsb = dd.map(d => wm[d]?.ctl != null ? +(wm[d].ctl - wm[d].atl).toFixed(1) : null);
+  if (!showEmpty("cTsb", noWell)) mk("cTsb", { data: { labels: dd.map(fmtD), datasets: [
+      bar("Form (TSB)", tsb, tsb.map(v => v >= 0 ? COL.Swim : "#e66767"), { borderRadius: 2, maxBarThickness: 10, borderWidth: 0 })] },
+    options: opts({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` Form: ${c.parsed.y > 0 ? "+" : ""}${c.parsed.y} (${c.parsed.y < -30 ? "very fatigued" : c.parsed.y < -10 ? "training fatigue" : c.parsed.y <= 15 ? "neutral / fresh" : "very fresh"})` } } } }) });
+
+  // weekly CTL change (always weekly; the ramp flag is a weekly rule)
+  const wks = []; for (let k = monday(S.from); k <= S.to; k = addDays(k, 7)) wks.push(k);
+  const ctlAt = d => { for (let x = d, i = 0; i < 7; x = addDays(x, -1), i++) if (wm[x]?.ctl != null) return wm[x].ctl; return null; };
+  const ch = wks.map(k => { const end = addDays(k, 6) > D.today ? D.today : addDays(k, 6); const a = ctlAt(end), b = ctlAt(addDays(k, -1));
+    return a != null && b != null ? +(a - b).toFixed(1) : null; });
+  if (!showEmpty("cRamp", ch.every(v => v == null), "Needs wellness data for at least two weeks")) mk("cRamp", { data: { labels: wks.map(fmtD), datasets: [
+      bar("Weekly CTL change", ch, ch.map(v => v >= 5 ? COL.warning : COL.Swim)),
+      line("+5 flag", wks.map(() => 5), COL.muted, { borderWidth: 1, borderDash: [4, 4], tension: 0 })] },
+    options: opts({ plugins: { tooltip: { callbacks: { title: it => "Week of " + it[0].label,
+      label: c => c.dataset.type === "line" ? null : ` CTL change: ${c.parsed.y > 0 ? "+" : ""}${c.parsed.y}${c.parsed.y >= 5 ? "  ⚠ steep ramp" : ""}` } } } }) });
+  const rl = clear("rampList");
+  wks.forEach((k, i) => { if (ch[i] >= 5) rl.append(el("li", {}, el("span", { class: "pill st-warning" }, "⚠ ramp"), el("span", { class: "t" }, `Week of ${fmtD(k)}: fitness +${ch[i]}`))); });
+  if (!rl.children.length && ch.some(v => v != null)) rl.append(el("li", {}, el("span", { class: "pill st-good" }, "✓ ok"), el("span", { class: "t" }, "No week in this range raised fitness by 5 or more.")));
+}
+
+function renderPlan() {
+  const items = D.plan.filter(p => S.sports.has(p.sport) && (inRange(p.d) || (p.d > D.today && p.d <= addDays(D.today, 7))));
+  const past = items.filter(p => p.d < D.today);
+  const done = past.filter(p => p.status.startsWith("done")).length, moved = past.filter(p => p.status.startsWith("moved")).length;
+  document.getElementById("planSummary").textContent = past.length
+    ? `${done} of ${past.length} planned sessions done on the planned day (${Math.round(100 * done / past.length)}%) · ${done + moved} of ${past.length} (${Math.round(100 * (done + moved) / past.length)}%) counting sessions moved by one day.`
+    : "No past planned sessions in this range.";
+  const l = clear("planList");
+  const ST = { done: ["✓ done", "st-good"], "done (unpaired)": ["✓ done", "st-good"], today: ["○ today", "st-muted"], upcoming: ["• next", "st-muted"], missed: ["✗ missed", "st-critical"] };
+  for (const p of [...items].reverse()) {
+    const [lab, cls] = ST[p.status] || ["↔ moved", "st-warning"];
+    const extra = p.status === "done (unpaired)" ? " – matched by sport and day (not paired in intervals.icu)" : p.status.startsWith("moved") ? ` – done the ${p.status.slice(7, -1)}` : "";
+    l.append(el("li", {}, el("span", { class: "d" }, fmtD(p.d)), el("span", { class: "pill " + cls }, lab),
+      el("span", { class: "t" }, p.name + extra)));
+  }
+  document.getElementById("planNote").textContent = `Source: your intervals.icu calendar. A planned session counts as done if intervals.icu paired it with an activity, or an activity of the same sport exists that day. ` +
+    (D.planExcludedStrength ? `${D.planExcludedStrength} planned strength session(s) are excluded because strength isn't logged.` : "");
+}
+
+function renderSwim(sw) {
+  const box = clear("cssBox");
+  const t = D.css.tests[D.css.tests.length - 1];
+  if (t) box.append(el("div", { class: "explain" },
+    el("div", {}, el("b", {}, `CSS ${fmtPace(t.css)}/100 m`), ` – from your CSS test on ${fmtD(t.date)}: 400 m ≈ ${fmtHMS(t.t400)}, 200 m ≈ ${fmtHMS(t.t200)}.`),
+    el("div", {}, `Estimated from the watch's lengths (${t.n400} + ${t.n200} continuous lengths found); intervals.icu threshold pace is ${fmtPace(D.css.threshold)}/100 m.`)));
+  else box.append(el("p", { class: "small" }, `No CSS test found. intervals.icu threshold pace: ${fmtPace(D.css.threshold)}/100 m.`));
+  if (showEmpty("cSwim", !sw.length)) { clear("swimTable"); return; }
+  const labels = sw.map(a => fmtD(a.d) + (a.swim.ow ? " OW" : ""));
+  const ds = [line("Swimming lengths (rests removed)", sw.map(a => a.swim.set), COL.Swim, { pointRadius: 4, pointStyle: sw.map(a => a.swim.ow ? "triangle" : "circle") }),
+              line("Average incl. rests", sw.map(a => a.swim.avg), COL.muted, { pointRadius: 3, borderDash: [4, 3] })];
+  const c = t ? t.css : D.css.threshold;
+  if (c) ds.push(line("CSS", sw.map(() => c), COL.good, { borderWidth: 1, borderDash: [2, 4], tension: 0 }));
+  mk("cSwim", { data: { labels, datasets: ds }, options: opts({ scales: { y: { reverse: true, ticks: { callback: fmtPace } } },
+    plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmtPace(c.parsed.y)}/100 m` } } } }) });
+  const tb = clear("swimTable");
+  tb.append(el("tr", {}, el("th", {}, "Swim"), el("th", {}, "Dist"), el("th", {}, "Lengths pace"), el("th", {}, "Avg incl. rests"), el("th", {}, "Removed")));
+  for (const a of [...sw].reverse()) tb.append(el("tr", {}, el("td", {}, fmtD(a.d) + (a.swim.ow ? " · open water" : "")), el("td", {}, `${Math.round(a.dist)} m`),
+    el("td", {}, fmtPace(a.swim.set)), el("td", {}, fmtPace(a.swim.avg)), el("td", {}, a.swim.ow ? "–" : `${a.swim.dropped} len`)));
+}
+
+function renderBike(rides, well) {
+  const dd = days(), wm = Object.fromEntries(D.well.map(w => [w.d, w]));
+  const eftp = dd.map(d => wm[d]?.eftp != null ? Math.round(wm[d].eftp) : null);
+  const ftp = dd.map(d => d >= D.ftp.from ? D.ftp.w : null);
+  if (!showEmpty("cFtp", eftp.every(v => v == null) && ftp.every(v => v == null)))
+    mk("cFtp", { data: { labels: dd.map(fmtD), datasets: [line("FTP (ramp test)", ftp, COL.Bike, { stepped: true, tension: 0 }), line("eFTP (intervals.icu estimate)", eftp, COL.muted, { borderDash: [4, 3] })] },
+      options: opts({ plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y} W` } } } }) });
+  document.getElementById("ftpNote").textContent = `FTP ${D.ftp.w} W from the Zwift ramp test on ${fmtD(D.ftp.from)}; older FTP values are ignored. eFTP is intervals.icu's rolling estimate from your rides.`;
+
+  const KEY = [5, 15, 30, 60, 120, 300, 600, 1200, 1800, 2700, 3600, 5400, 7200];
+  const fmtSec = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`;
+  const pc = (D.curves.power || []).filter(c => c.secs && c.secs.length);
+  const pcol = [COL.Bike, COL.Swim];
+  if (!showEmpty("cPower", !pc.length, "No power data yet"))
+    mk("cPower", { type: "line", data: { datasets: pc.map((c, i) => line(c.label, c.secs.map((s, j) => ({ x: s, y: c.values[j] })).filter(p => p.y), pcol[i % 2], { tension: 0, ...(i ? { borderDash: [4, 3] } : {}) })) },
+      options: opts({ interaction: { mode: "nearest", axis: "x", intersect: false },
+        scales: { x: { type: "logarithmic", min: 1, grid: { display: true, color: COL.grid }, ticks: { autoSkip: false, callback: v => KEY.includes(v) ? fmtSec(v) : null } }, y: { title: { display: true, text: "W", color: COL.muted } } },
+        plugins: { tooltip: { callbacks: { title: it => fmtSec(it[0].parsed.x), label: c => ` ${c.dataset.label}: ${c.parsed.y} W (${Math.round(100 * c.parsed.y / D.ftp.w)}% FTP)` } } } }) });
+
+  const pr = rides.filter(r => r.ef && r.hr);
+  const labs = pr.map(r => fmtD(r.d));
+  const tip = (fmt) => ({ plugins: { legend: { display: false }, tooltip: { callbacks: { title: it => `${it[0].label} · ${pr[it[0].dataIndex].name}`,
+    label: c => fmt(c.parsed.y, pr[c.dataIndex]) } } } });
+  if (!showEmpty("cEf", !pr.length, "No rides with both power and HR in this range"))
+    mk("cEf", { data: { labels: labs, datasets: [bar("EF", pr.map(r => +r.ef.toFixed(2)), COL.Bike)] },
+      options: opts(tip((v, r) => ` EF ${v} · NP ${r.np ?? "–"} W · HR ${Math.round(r.hr)} · ${Math.round(r.mov / 60)} min`)) });
+  if (!showEmpty("cDrift", !pr.length, "No rides with both power and HR in this range"))
+    mk("cDrift", { data: { labels: labs, datasets: [bar("Drift %", pr.map(r => r.dec != null ? +r.dec.toFixed(1) : null), pr.map(r => r.dec > 5 ? COL.warning : COL.Bike)),
+        line("5% guide", pr.map(() => 5), COL.muted, { borderWidth: 1, borderDash: [4, 4], tension: 0 })] },
+      options: opts(tip((v, r) => ` Drift ${v}%${v > 5 ? " ⚠ above 5%" : ""} · ${Math.round(r.mov / 60)} min`)) });
+}
+
+function renderRun(runs) {
+  runs = runs.filter(r => r.pace && r.hr);
+  const pt = r => ({ x: r.hr, y: r.pace, r });
+  const sets = [["Short runs", runs.filter(r => !r.long && !r.race), COL.Run, "circle"], ["Longer runs", runs.filter(r => r.long && !r.race), COL.Swim, "rectRounded"],
+                ["Race (off the bike)", runs.filter(r => r.race), COL.warning, "triangle"]].filter(s => s[1].length);
+  if (!showEmpty("cRunScatter", !runs.length))
+    mk("cRunScatter", { type: "scatter", data: { datasets: sets.map(([l, rs, c, ps]) => ({ label: l, data: rs.map(pt), backgroundColor: c, borderColor: COL.surface, borderWidth: 2, pointRadius: 6, pointHoverRadius: 8, pointStyle: ps })) },
+      options: opts({ interaction: { mode: "nearest", intersect: true },
+        scales: { x: { title: { display: true, text: "Average HR (bpm)", color: COL.muted }, grid: { display: true, color: COL.grid } },
+                  y: { reverse: true, title: { display: true, text: "Pace /km (faster ↑)", color: COL.muted }, ticks: { callback: fmtPace } } },
+        plugins: { legend: { labels: { pointStyle: undefined, usePointStyle: true } }, tooltip: { callbacks: { title: it => { const r = it[0].raw.r; return `${fmtD(r.d)} · ${r.name}`; },
+          label: c => { const r = c.raw.r; return ` ${(r.dist / 1000).toFixed(1)} km · ${fmtPace(r.pace)}/km · HR ${Math.round(r.hr)}`; } } } } }) });
+  const ok = runs.filter(r => r.mpb);
+  if (!showEmpty("cRunEff", !ok.length))
+    mk("cRunEff", { data: { labels: ok.map(r => fmtD(r.d)), datasets: [
+        line("Short runs", ok.map(r => !r.long ? +r.mpb.toFixed(2) : null), COL.Run, { pointRadius: 4 }),
+        line("Longer runs", ok.map(r => r.long ? +r.mpb.toFixed(2) : null), COL.Swim, { pointRadius: 4, pointStyle: "rectRounded" })] },
+      options: opts({ interaction: { mode: "nearest", intersect: false }, plugins: { tooltip: { callbacks: { title: it => `${it[0].label} · ${ok[it[0].dataIndex].name}`,
+        label: c => c.parsed.y == null ? null : ` ${c.parsed.y} m per beat · ${(ok[c.dataIndex].dist / 1000).toFixed(1)} km at ${fmtPace(ok[c.dataIndex].pace)}/km` } } } }) });
+  document.getElementById("runNote").textContent = `Longer runs = ${D.longRunM / 1000} km or more. Higher metres per heartbeat = more speed for the same effort; compare runs of similar length and terrain. The 13 Sep sprint-tri file (26.7 km logged as one run) is excluded; the race's separate 5 km run leg is shown as a triangle.`;
+}
+
+function baseline(vals) { // previous-28-day mean, needs >= 7 values
+  return vals.map((_, i) => { const w = vals.slice(Math.max(0, i - 28), i).filter(v => v != null); return w.length >= 7 ? +(w.reduce((a, b) => a + b, 0) / w.length).toFixed(1) : null; });
+}
+function renderRecovery() {
+  const all = D.well, idx = Object.fromEntries(all.map((w, i) => [w.d, i]));
+  const rb = baseline(all.map(w => w.rhr)), sb = baseline(all.map(w => w.sleep));
+  const dd = days().filter(d => d in idx);
+  const pick = (arr) => dd.map(d => arr[idx[d]]);
+  const rhr = pick(all.map(w => w.rhr)), sl = pick(all.map(w => w.sleep != null ? +w.sleep.toFixed(2) : null));
+  if (!showEmpty("cRhr", rhr.every(v => v == null)))
+    mk("cRhr", { data: { labels: dd.map(fmtD), datasets: [line("Resting HR", rhr, "#e66767", { pointRadius: 2 }), line("28-day baseline", pick(rb), COL.muted, { borderDash: [4, 3] })] },
+      options: opts({ plugins: { tooltip: { callbacks: { label: c => c.parsed.y == null ? null : ` ${c.dataset.label}: ${c.parsed.y} bpm` } } } }) });
+  const fmtH = v => `${Math.floor(v)}h${String(Math.round(v % 1 * 60)).padStart(2, "0")}`;
+  if (!showEmpty("cSleep", sl.every(v => v == null)))
+    mk("cSleep", { data: { labels: dd.map(fmtD), datasets: [bar("Sleep", sl, COL.Other, { borderRadius: 2, maxBarThickness: 12 }), line("28-day baseline", pick(sb), COL.ink2, { borderDash: [4, 3] })] },
+      options: opts({ scales: { y: { ticks: { callback: fmtH } } }, plugins: { tooltip: { callbacks: { label: c => c.parsed.y == null ? null : ` ${c.dataset.label}: ${fmtH(c.parsed.y)}` + (c.dataset.type === "bar" && all[idx[dd[c.dataIndex]]].sleepScore ? ` · score ${all[idx[dd[c.dataIndex]]].sleepScore}` : "") } } } }) });
+}
+
+function renderProjection() {
+  const P = D.projection, L = P.legs, B = P.budget, tot = projTotal();
+  document.getElementById("projSub").textContent = tot
+    ? `Rough projection ${fmtHMS(tot)} – ${tot <= D.race.goal ? "under" : "over"} 3:00:00 by ${fmtHMS(Math.abs(tot - D.race.goal))}. Last sprint tri: ${D.race.lastSprint}. Not filtered by the date range.`
+    : "Not enough data for a projection yet.";
+  const legs = ["Swim", "Bike", "Run"].filter(k => L[k] != null);
+  const weak = legs.sort((a, b) => (L[b] - B[b]) / B[b] - (L[a] - B[a]) / B[a])[0];
+  const tb = clear("projTable");
+  tb.append(el("tr", {}, el("th", {}, "Leg"), el("th", {}, "Projected"), el("th", {}, "Sub-3 budget"), el("th", {}, "Gap")));
+  for (const k of ["Swim", "T1", "Bike", "T2", "Run"]) {
+    const gap = L[k] != null ? L[k] - B[k] : null;
+    tb.append(el("tr", { class: k === weak && gap > 0 ? "weak" : "" }, el("td", {}, k), el("td", {}, fmtHMS(L[k])), el("td", {}, fmtHMS(B[k])),
+      el("td", { class: gap == null ? "" : gap > 0 ? "st-serious" : "st-good" }, gap == null ? "–" : fmtDelta(gap))));
+  }
+  const bt = Object.values(B).reduce((a, b) => a + b, 0);
+  tb.append(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, fmtHMS(tot)), el("td", {}, fmtHMS(bt)), el("td", { class: tot > bt ? "st-serious" : "st-good" }, tot ? fmtDelta(tot - bt) : "–")));
+  const a = clear("projAssume"); P.assumptions.forEach(x => a.append(el("li", {}, x)));
+  const c = clear("projCross"); P.cross.forEach(x => c.append(el("li", {}, x)));
+  if (weak && L[weak] > B[weak]) c.append(el("li", {}, `Weakest link = the leg furthest over its sub-3 budget in relative terms: ${weak} (${fmtDelta(L[weak] - B[weak])}, ${Math.round(100 * (L[weak] - B[weak]) / B[weak])}% over).`));
+}
+
+function renderFlags() {
+  const f = D.flags.filter(x => inRange(x.d));
+  const cnt = {}; f.forEach(x => cnt[x.kind] = (cnt[x.kind] || 0) + 1);
+  const r = clear("flagCounts");
+  for (const [k, n] of Object.entries(cnt)) r.append(el("span", { class: "pill st-warning" }, `⚠ ${k}: ${n}`));
+  const l = clear("flagList");
+  if (!f.length) l.append(el("li", {}, el("span", { class: "pill st-good" }, "✓ clean"), el("span", { class: "t" }, "No data-quality issues in this range.")));
+  for (const x of f) l.append(el("li", {}, el("span", { class: "d" }, fmtD(x.d)), el("span", { class: "t" }, el("b", {}, x.kind + ": "), x.msg)));
+}
+</script>
+</body>
+</html>
