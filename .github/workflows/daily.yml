@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
   pages: write
   id-token: write
 
@@ -57,3 +58,9 @@ jobs:
           path: site
       - id: deploy
         uses: actions/deploy-pages@v4
+
+      # GitHub disables schedules in repos with no activity for 60 days; re-enabling resets that.
+      - name: Keep schedule alive
+        run: gh workflow enable daily.yml -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
