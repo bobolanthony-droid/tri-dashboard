@@ -5,9 +5,11 @@ All athlete-specific rules live in the constants below.
 import base64
 import json
 import os
+import re
 import statistics
+import subprocess
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -52,6 +54,18 @@ def env(name):
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
     return os.environ.get(name, "").strip()
+
+
+def github_repo():
+    """owner/name for the sync button: set by Actions, else read from the git remote."""
+    if os.environ.get("GITHUB_REPOSITORY"):
+        return os.environ["GITHUB_REPOSITORY"]
+    try:
+        url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=ROOT, capture_output=True, text=True).stdout
+    except OSError:
+        return ""
+    m = re.search(r"github\.com[:/]([^/]+/[^/.\s]+)", url)
+    return m.group(1) if m else ""
 
 
 def is_combined_race(a):
@@ -310,6 +324,7 @@ def main():
 
     payload = {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "today": today,
+        "generatedUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "lastSync": state.get("last_run"),
         "race": {"date": RACE_DATE.isoformat(), "goal": GOAL_SECS, "lastSprint": LAST_SPRINT},
         "ftp": {"w": FTP_W, "from": FTP_FROM},
@@ -328,7 +343,9 @@ def main():
     blob = {"salt": base64.b64encode(salt).decode(), "iv": base64.b64encode(iv).decode(),
             "ct": base64.b64encode(ct).decode(), "iter": PBKDF2_ITER}
 
-    html = (ROOT / "template.html").read_text(encoding="utf-8").replace("/*__BLOB__*/null", json.dumps(blob))
+    html = ((ROOT / "template.html").read_text(encoding="utf-8")
+            .replace("/*__BLOB__*/null", json.dumps(blob))
+            .replace('/*__REPO__*/""', json.dumps(github_repo())))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
     if "--debug-json" in sys.argv:

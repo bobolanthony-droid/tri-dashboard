@@ -88,6 +88,11 @@ a { color: var(--accent); }
   <header>
     <h1>Olympic tri · road to sub-3:00</h1>
     <div class="sub" id="meta"></div>
+    <div class="row" id="syncRow">
+      <button class="chip" id="syncBtn" type="button">⟳ Sync now</button>
+      <span class="sub" id="syncStatus"></span>
+      <button class="chip hidden" id="reloadBtn" type="button" aria-pressed="true">New data – reload</button>
+    </div>
   </header>
 
   <div class="controls">
@@ -98,6 +103,7 @@ a { color: var(--accent); }
         <div class="row"><input type="date" id="from" aria-label="From"> <span>to</span> <input type="date" id="to" aria-label="To"></div>
       </details>
     </div>
+    <p class="small" style="margin:4px 0 0">Tap a chart to see values; tap the same spot again or anywhere outside to hide them.</p>
   </div>
 
   <section class="kpis" id="kpis" style="margin-top:12px"></section>
@@ -125,6 +131,7 @@ a { color: var(--accent); }
 
   <section class="card" id="sec-plan">
     <h2>Plan compliance</h2>
+    <p class="small" style="margin:0">This week and last week (Mon–Sun); not affected by the date range.</p>
     <p class="sub" id="planSummary"></p>
     <ul class="list" id="planList"></ul>
     <p class="small" id="planNote"></p>
@@ -192,6 +199,7 @@ a { color: var(--accent); }
 
 <script>
 const BLOB = /*__BLOB__*/null;
+const REPO = /*__REPO__*/"";
 const SPORTS = ["Swim", "Bike", "Run", "Padel", "Other"];
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const COL = {};
@@ -261,9 +269,23 @@ function mk(id, cfg) {
   if (charts[id]) charts[id].destroy();
   charts[id] = new Chart(document.getElementById(id), cfg);
 }
+// Tooltips stay after a tap on touch screens: a second tap on the same spot, a tap on
+// another chart, or a tap anywhere outside the charts hides them.
+function hideTip(c) {
+  c.$lastTap = null;
+  if (!c.getActiveElements().length && !c.tooltip.getActiveElements().length) return;
+  c.setActiveElements([]); c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.update("none");
+}
+function tapToggle(e, els, chart) {
+  for (const c of Object.values(charts)) if (c !== chart) hideTip(c);
+  const key = els.map(x => `${x.datasetIndex}:${x.index}`).join(",");
+  // Deferred: the tooltip plugin handles this same click after onClick and would re-open it.
+  if (!els.length || chart.$lastTap === key) setTimeout(() => hideTip(chart), 0); else chart.$lastTap = key;
+}
+document.addEventListener("click", e => { if (e.target.tagName !== "CANVAS") Object.values(charts).forEach(hideTip); });
 function opts(extra = {}) {
   const o = {
-    responsive: true, maintainAspectRatio: false, animation: false,
+    responsive: true, maintainAspectRatio: false, animation: false, onClick: tapToggle,
     interaction: { mode: "index", intersect: false },
     events: ["mousemove", "mouseout", "click", "touchstart", "touchmove"],
     plugins: {
@@ -309,7 +331,50 @@ function start(data) {
   const m = document.getElementById("meta");
   const wk = Math.ceil((new Date(D.race.date) - new Date(D.today)) / 6048e5);
   m.textContent = `Race ~${fmtD(D.race.date)} 2027 · ${wk} weeks to go · data synced ${D.lastSync ? D.lastSync.replace("T", " ").replace("Z", " UTC") : D.generated}`;
+  initSync();
   render();
+}
+
+// ---------- on-demand sync ----------
+// Starting a run needs GitHub sign-in, so "Sync now" opens the workflow page (tap "Run workflow"
+// there). The repo is public, so this page can read run status without a token and offer a
+// reload once a run newer than this build has finished.
+let syncTimer = null, syncUntil = 0;
+const ago = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+async function checkSync() {
+  const st = document.getElementById("syncStatus");
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/daily.yml/runs?per_page=1`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const run = (await r.json()).workflow_runs?.[0];
+    if (!run) { st.textContent = "No sync runs yet"; return; }
+    const done = run.status === "completed", t = new Date(run.updated_at);
+    const how = run.event === "schedule" ? "daily" : "manual";
+    if (!done) st.textContent = `⏳ ${how} sync running (started ${ago(new Date(run.run_started_at || run.created_at))})…`;
+    else if (run.conclusion === "success") st.textContent = `✓ last ${how} sync ${ago(t)}`;
+    else st.textContent = `✗ last ${how} sync ${run.conclusion} ${ago(t)}`;
+    // Pages deploys at the end of the run; give its CDN a moment before offering the reload.
+    const fresh = done && run.conclusion === "success" && t > new Date(D.generatedUtc) && Date.now() - t > 20e3;
+    document.getElementById("reloadBtn").classList.toggle("hidden", !fresh);
+    if (fresh || (done && Date.now() > syncUntil)) stopPolling();
+  } catch (e) { st.textContent = "Sync status unavailable"; }
+}
+function startPolling(minutes = 10) {
+  syncUntil = Date.now() + minutes * 6e4;
+  if (!syncTimer) syncTimer = setInterval(checkSync, 15e3);
+  checkSync();
+}
+function stopPolling() { clearInterval(syncTimer); syncTimer = null; }
+function initSync() {
+  if (!REPO) { document.getElementById("syncRow").classList.add("hidden"); return; }
+  document.getElementById("syncBtn").onclick = () => {
+    window.open(`https://github.com/${REPO}/actions/workflows/daily.yml`, "_blank", "noopener");
+    startPolling();
+  };
+  document.getElementById("reloadBtn").onclick = () => { location.href = location.pathname + "?v=" + Date.now(); };
+  // Coming back from the GitHub tab: watch for the run for a few minutes.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && syncUntil) startPolling(); });
+  checkSync();
 }
 function setRange(r, rerender = true) {
   S.range = r;
@@ -376,9 +441,15 @@ function renderKpis(acts) {
   k.append(tile("Fitness · CTL", w ? w.ctl.toFixed(0) : "–", w ? `fatigue ${w.atl.toFixed(0)} · form ${(w.ctl - w.atl).toFixed(0)}` : ""));
   k.append(tile("Projected Olympic", tot ? fmtHMS(tot) : "–", tot ? `${fmtDelta(tot - D.race.goal)} vs 3:00:00` : "", tot && tot <= D.race.goal ? "st-good" : ""));
   k.append(tile("Training in range", `${hrs.toFixed(1)} h`, `${(hrs / nWeeks).toFixed(1)} h/week · ${acts.length} sessions`));
-  const past = D.plan.filter(p => p.d < D.today && inRange(p.d) && S.sports.has(p.sport));
+  const past = planWindow().filter(p => p.d < D.today || (p.d === D.today && p.status.startsWith("done")));
   const done = past.filter(p => p.status.startsWith("done")).length;
-  k.append(tile("Plan done on the day", past.length ? `${Math.round(100 * done / past.length)}%` : "–", past.length ? `${done} of ${past.length} planned sessions` : "no planned sessions in range"));
+  k.append(tile("Plan done · 2 weeks", past.length ? `${Math.round(100 * done / past.length)}%` : "–", past.length ? `${done} of ${past.length} planned sessions so far` : "no planned sessions yet"));
+}
+
+// Plan compliance covers last week and this week (Mon–Sun), independent of the date range.
+function planWindow() {
+  const from = addDays(monday(D.today), -7), to = addDays(monday(D.today), 6);
+  return D.plan.filter(p => p.d >= from && p.d <= to && S.sports.has(p.sport));
 }
 
 function renderProgress(acts, well) {
@@ -429,12 +500,12 @@ function renderProgress(acts, well) {
 }
 
 function renderPlan() {
-  const items = D.plan.filter(p => S.sports.has(p.sport) && (inRange(p.d) || (p.d > D.today && p.d <= addDays(D.today, 7))));
-  const past = items.filter(p => p.d < D.today);
+  const items = planWindow();
+  const past = items.filter(p => p.d < D.today || (p.d === D.today && p.status.startsWith("done")));
   const done = past.filter(p => p.status.startsWith("done")).length, moved = past.filter(p => p.status.startsWith("moved")).length;
   document.getElementById("planSummary").textContent = past.length
     ? `${done} of ${past.length} planned sessions done on the planned day (${Math.round(100 * done / past.length)}%) · ${done + moved} of ${past.length} (${Math.round(100 * (done + moved) / past.length)}%) counting sessions moved by one day.`
-    : "No past planned sessions in this range.";
+    : "No planned sessions so far in these two weeks.";
   const l = clear("planList");
   const ST = { done: ["✓ done", "st-good"], "done (unpaired)": ["✓ done", "st-good"], today: ["○ today", "st-muted"], upcoming: ["• next", "st-muted"], missed: ["✗ missed", "st-critical"] };
   for (const p of [...items].reverse()) {
