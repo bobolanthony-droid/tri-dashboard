@@ -1,4 +1,4 @@
-"""Incremental sync of intervals.icu data into ./data as JSON.
+"""Incremental sync of intervals.icu data into ./data as JSON (python sync.py --full re-pulls all history).
 
 First run pulls the full history; later runs refetch only from the last
 synced day (minus a small overlap to catch edits and late uploads).
@@ -96,7 +96,7 @@ def main():
     state_p = DATA / "sync_state.json"
     state = read_json(state_p, {})
     today = date.today()
-    first_run = "last_synced" not in state
+    first_run = "last_synced" not in state or "--full" in sys.argv  # --full: re-pull everything
     start = HISTORY_START if first_run else date.fromisoformat(state["last_synced"]) - timedelta(days=OVERLAP_DAYS)
     print(f"{'Full' if first_run else 'Incremental'} sync from {start} to {today}")
 

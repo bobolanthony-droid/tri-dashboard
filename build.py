@@ -137,6 +137,30 @@ def riegel(t, d_from, d_to, k=1.06):
     return t * (d_to / d_from) ** k
 
 
+def run_estimates(acts, legs, as_of):
+    """10 km estimates from the race run leg and the best fresh run of 4.8 km+, known by `as_of`."""
+    est = []
+    if "Run" in legs and legs["Run"][1]["dist"] and legs["Run"][1]["d"] <= as_of:
+        r = legs["Run"][1]
+        est.append(("sprint run leg off the bike", riegel(r["mov"], r["dist"], 10000)))
+    fresh = [r for r in acts if r["sport"] == "Run" and not r["race"] and (r["dist"] or 0) >= 4800 and r["d"] <= as_of]
+    if fresh:
+        best = min(fresh, key=lambda r: r["pace"])
+        est.append((f"best training run {best['d']} ({best['dist'] / 1000:.1f} km) +4% off-bike",
+                    riegel(best["mov"], best["dist"], 10000) * 1.04))
+    return est
+
+
+def leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, as_of):
+    """Projected leg times using only what was known on `as_of` (same model as the main projection)."""
+    tests = [c for c in css_tests if c["date"] <= as_of]
+    css = tests[-1]["css"] if tests else thr_pace
+    est = run_estimates(acts, legs, as_of)
+    return {"Swim": (css + 4) * 15 if css else None, "T1": t1,
+            "Bike": 40000 / bike_speed(0.80 * FTP_W, mass) if as_of >= FTP_FROM else None,
+            "T2": t2, "Run": statistics.mean(t for _, t in est) if est else None}
+
+
 def main():
     acts_raw = load("activities.json", [])
     wellness = load("wellness.json", [])
@@ -181,12 +205,18 @@ def main():
             "ef": a.get("icu_efficiency_factor"), "dec": a.get("decoupling"), "src": a.get("source"),
             "race": d == COMBINED_RACE_DATE,
         }
+        hrr = a.get("icu_hrr") or {}
+        if hrr.get("start_bpm") and hrr.get("end_bpm"):
+            # HR drop in the 60 s after the hardest effort; a bigger drop = fitter
+            row["hrr"] = {"drop": hrr["start_bpm"] - hrr["end_bpm"], "from": hrr["start_bpm"]}
         if row["race"]:
             race_day_legs.append((a, row))
         if sport == "Bike" and a.get("icu_ftp") and d < FTP_FROM:
             old_ftp_rides += 1
         if sport == "Swim":
             row["swim"] = swim_set_pace(a, iv)
+            if hr and row["swim"]["set"] and not row["swim"]["ow"]:
+                row["mpb"] = (100 / row["swim"]["set"]) * 60 / hr  # metres per heartbeat, swimming lengths only
             if a["id"] in css_event_acts or "css" in (a.get("name") or "").lower():
                 c = css_from_test(a, iv, a.get("pool_length"))
                 if c:
@@ -281,16 +311,8 @@ def main():
                        f"Crr 0.005, rider {f'{weight:.0f} kg (intervals.icu)' if weight else '75 kg (no weight in intervals.icu)'} + 9 kg bike "
                        f"-> {v * 3.6:.1f} km/h.")
 
-    run_est = []
     legs = {SPORTS.get(a["type"]): (a, r) for a, r in race_day_legs}
-    if "Run" in legs and legs["Run"][1]["dist"]:
-        r = legs["Run"][1]
-        run_est.append(("sprint run leg off the bike", riegel(r["mov"], r["dist"], 10000)))
-    fresh = [r for r in acts if r["sport"] == "Run" and not r["race"] and (r["dist"] or 0) >= 4800]
-    if fresh:
-        best = min(fresh, key=lambda r: r["pace"])
-        run_est.append((f"best training run {best['d']} ({best['dist'] / 1000:.1f} km) +4% off-bike",
-                        riegel(best["mov"], best["dist"], 10000) * 1.04))
+    run_est = run_estimates(acts, legs, today)
     run_t = statistics.mean(t for _, t in run_est) if run_est else None
     assumptions.append("Run: 10 km = mean of " + "; ".join(f"{n} -> {int(t // 60)}:{int(t % 60):02d}" for n, t in run_est)
                        + ". Scaled with Riegel (exponent 1.06).")
@@ -307,9 +329,18 @@ def main():
             t2, t2_src = mt2, "gap between your sprint bike and run files"
     assumptions.append(f"Transitions: T1 {int(t1 // 60)}:{int(t1 % 60):02d} ({t1_src}), T2 {int(t2 // 60)}:{int(t2 % 60):02d} ({t2_src}).")
 
-    budget = {"Swim": 30 * 60, "T1": 180, "Bike": 80 * 60, "T2": 90, "Run": 55 * 60 + 30}
+    budget = {"Swim": 32 * 60, "T1": 180, "Bike": 85 * 60, "T2": 90, "Run": 58 * 60 + 30}  # totals 3:00:00
     proj = {"Swim": swim_t, "T1": t1, "Bike": bike_t, "T2": t2, "Run": run_t}
-    assumptions.append("Sub-3:00 budget used for the weakest link: swim 30:00, T1 3:00, bike 1:20:00, T2 1:30, run 55:30.")
+    assumptions.append("Sub-3:00 budget (totals 3:00:00) used for the weakest link: swim 32:00, T1 3:00, bike 1:25:00, T2 1:30, run 58:30.")
+
+    # Projection as it stood on each past day (only benchmarks known by then), for the trend chart.
+    history = []
+    d = date.fromisoformat(FTP_FROM)
+    while d.isoformat() <= today:
+        L = leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, d.isoformat())
+        if all(v is not None for v in L.values()):
+            history.append({"d": d.isoformat(), **{k: round(v) for k, v in L.items()}})
+        d += timedelta(days=1)
 
     cross = []
     if "Swim" in legs and legs["Swim"][1]["dist"]:
@@ -333,7 +364,7 @@ def main():
         "css": {"tests": css_tests, "threshold": thr_pace},
         "curves": {k: [{"id": c.get("id"), "label": c.get("label"), "secs": c.get("secs"), "values": c.get("values")}
                        for c in ((curves.get("power_ride") or {}).get("list") or [])] for k in ("power",)},
-        "projection": {"legs": proj, "budget": budget, "assumptions": assumptions, "cross": cross},
+        "projection": {"legs": proj, "budget": budget, "assumptions": assumptions, "cross": cross, "history": history},
         "flags": sorted(flags, key=lambda f: f["d"], reverse=True),
     }
 

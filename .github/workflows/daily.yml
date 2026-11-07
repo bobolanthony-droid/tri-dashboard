@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 5 * * *"   # 05:00 UTC every day
   workflow_dispatch:
+    inputs:
+      full_resync:
+        description: "Re-pull the full intervals.icu history (e.g. after importing older activities)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,7 +47,7 @@ jobs:
           restore-keys: icu-data-
 
       - run: python cache_crypt.py unpack
-      - run: python sync.py
+      - run: python sync.py ${{ inputs.full_resync && '--full' || '' }}
       - run: python build.py
       - run: python cache_crypt.py pack
 

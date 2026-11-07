@@ -108,6 +108,12 @@ a { color: var(--accent); }
 
   <section class="kpis" id="kpis" style="margin-top:12px"></section>
 
+  <section class="card" id="sec-week">
+    <h2>This week</h2>
+    <p class="small" style="margin:0" id="weekSub"></p>
+    <div id="weekBox"></div>
+  </section>
+
   <section class="card" id="sec-progress">
     <h2>Progression</h2>
     <h3 id="hoursTitle">Hours by sport</h3>
@@ -169,6 +175,18 @@ a { color: var(--accent); }
     <p class="small" id="runNote"></p>
   </section>
 
+  <section class="card" id="sec-hr">
+    <h2>Heart-rate trends</h2>
+    <p class="small" style="margin:0">Is your heart doing the same work more cheaply? Compares your sessions in the selected range with your first sessions.</p>
+    <div class="kpis" id="hrKpis" style="margin-top:10px"></div>
+    <h3>Aerobic efficiency by sport (your first 3 sessions = 100)</h3>
+    <div class="chart tall"><canvas id="cEffIdx"></canvas></div>
+    <p class="small">Higher = more speed or power per heartbeat. Run and swim: metres per heartbeat (swim uses swimming lengths only, rests removed). Bike: efficiency factor (normalised power ÷ HR), Zwift rides only, since outdoor rides have no power. Dots are sessions; the line is the average of the last 3. Wrist HR in the pool is less reliable, so read swim trends loosely.</p>
+    <h3>Heart-rate recovery (bpm drop in the 60 s after your hardest effort)</h3>
+    <div class="chart"><canvas id="cHrr"></canvas></div>
+    <p class="small">intervals.icu measures this when a session has a clear hard effort followed by easing off. A bigger drop over the weeks = better fitness. Compare within the same sport.</p>
+  </section>
+
   <section class="card" id="sec-recovery">
     <h2>Recovery</h2>
     <h3>Resting heart rate vs 28-day baseline</h3>
@@ -182,6 +200,9 @@ a { color: var(--accent); }
     <h2>Olympic race projection</h2>
     <p class="sub" id="projSub"></p>
     <table id="projTable"></table>
+    <h3>Projected finish over time</h3>
+    <div class="chart"><canvas id="cProjHist"></canvas></div>
+    <p class="small">The projection as it stood on each day, using only the tests and runs done by then. It moves when a benchmark changes: a CSS test, a faster 5 km+ run, or a new FTP.</p>
     <h3>Assumptions</h3>
     <ul class="notes" id="projAssume"></ul>
     <h3>Cross-checks</h3>
@@ -418,11 +439,13 @@ function render() {
   document.getElementById("sec-bike").classList.toggle("hidden", !S.sports.has("Bike"));
   document.getElementById("sec-run").classList.toggle("hidden", !S.sports.has("Run"));
   renderKpis(acts);
+  renderWeek();
   renderProgress(acts, well);
   renderPlan();
   if (S.sports.has("Swim")) renderSwim(acts.filter(a => a.sport === "Swim"));
   if (S.sports.has("Bike")) renderBike(acts.filter(a => a.sport === "Bike"), well);
   if (S.sports.has("Run")) renderRun(acts.filter(a => a.sport === "Run"));
+  renderHr(acts);
   renderRecovery();
   renderProjection();
   renderFlags();
@@ -611,6 +634,100 @@ function renderRecovery() {
       options: opts({ scales: { y: { ticks: { callback: fmtH } } }, plugins: { tooltip: { callbacks: { label: c => c.parsed.y == null ? null : ` ${c.dataset.label}: ${fmtH(c.parsed.y)}` + (c.dataset.type === "bar" && all[idx[dd[c.dataIndex]]].sleepScore ? ` · score ${all[idx[dd[c.dataIndex]]].sleepScore}` : "") } } } }) });
 }
 
+const tileEl = (l, v, s, cls = "") => el("div", { class: "kpi" }, el("div", { class: "l" }, l), el("div", { class: "v " + cls }, v), el("div", { class: "s" }, s));
+const fmtHM = s => { const m = Math.round(s / 60); return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`; };
+
+// "This week": Mon-Sun of today, independent of the filters.
+function renderWeek() {
+  const mon = monday(D.today), sun = addDays(mon, 6), pmon = addDays(mon, -7), sameDayLast = addDays(D.today, -7);
+  const wk = D.acts.filter(a => a.d >= mon && a.d <= sun), lw = D.acts.filter(a => a.d >= pmon && a.d < mon);
+  const sum = (xs, f) => xs.reduce((s, a) => s + (f(a) || 0), 0);
+  const dayN = Math.round((new Date(D.today) - new Date(mon)) / 864e5) + 1;
+  document.getElementById("weekSub").textContent = `${fmtD(mon)} – ${fmtD(sun)} · day ${dayN} of 7 · not affected by the filters`;
+  const box = clear("weekBox");
+
+  // Readiness: latest resting HR and sleep (today or yesterday) vs the previous 28 days, plus form.
+  const recent = k => { for (let i = D.well.length - 1; i >= Math.max(0, D.well.length - 2); i--) if (D.well[i][k] != null) return i; return -1; };
+  const base = (k, i) => { const v = D.well.slice(Math.max(0, i - 28), i).map(x => x[k]).filter(x => x != null); return v.length >= 7 ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const reasons = [], good = [];
+  const ri = recent("rhr"), si = recent("sleep");
+  if (ri >= 0) { const b = base("rhr", ri), v = D.well[ri].rhr; if (b != null) (v - b >= 5 ? reasons : good).push(`resting HR ${v} (${v - b >= 0 ? "+" : "−"}${Math.abs(v - b).toFixed(0)} vs baseline)`); }
+  if (si >= 0) { const b = base("sleep", si), v = D.well[si].sleep; if (b != null) (v < b - 1 ? reasons : good).push(`sleep ${fmtHM(v * 3600)} (baseline ${fmtHM(b * 3600)})`); }
+  const lw2 = latestWell(); if (lw2) { const f = lw2.ctl - lw2.atl; (f < -30 ? reasons : good).push(`form ${f.toFixed(0)}`); }
+  const [lab, cls] = reasons.length === 0 ? ["✓ Ready to train", "st-good"] : reasons.length === 1 ? ["⚠ Keep it easy", "st-warning"] : ["✗ Consider a rest day", "st-serious"];
+  const why = reasons.length ? `Watch: ${reasons.join(", ")}.` + (good.length ? ` OK: ${good.join(", ")}.` : "") : (good.length ? good.join(" · ") : "Not enough wellness data yet");
+  box.append(el("ul", { class: "list" }, el("li", {}, el("span", { class: "pill " + cls }, lab), el("span", { class: "t" }, why))));
+
+  const k = el("div", { class: "kpis", style: "margin-top:8px" });
+  const h = sum(wk, a => a.mov), lh = sum(lw, a => a.mov), lhSame = sum(lw.filter(a => a.d <= sameDayLast), a => a.mov);
+  k.append(tileEl("Done this week", fmtHM(h), `load ${Math.round(sum(wk, a => a.load))} · ${wk.length} sessions`));
+  k.append(tileEl("Last week", fmtHM(lh), `${fmtHM(lhSame)} by this day · load ${Math.round(sum(lw, a => a.load))}`));
+  const plan = D.plan.filter(p => p.d >= mon && p.d <= sun);
+  const left = plan.filter(p => p.status === "upcoming" || p.status === "today");
+  const doneP = plan.filter(p => p.status.startsWith("done") || p.status.startsWith("moved")).length;
+  k.append(tileEl("Plan this week", plan.length ? `${doneP}/${plan.length}` : "–", plan.length ? `${left.length} still to do` : "nothing planned"));
+  const next = D.plan.find(p => p.d >= D.today && (p.status === "upcoming" || p.status === "today"));
+  k.append(tileEl("Next session", next ? (next.d === D.today ? "Today" : fmtD(next.d)) : "–", next ? next.name : "nothing on the calendar"));
+  box.append(k);
+
+  const by = el("div", { class: "row", style: "margin-top:8px" });
+  for (const sp of SPORTS) {
+    const xs = wk.filter(a => a.sport === sp); if (!xs.length) continue;
+    by.append(el("span", { class: "chip", style: "cursor:default" }, el("span", { class: "dot", style: `background:${COL[sp]}` }), `${sp} ${xs.length}× · ${fmtHM(sum(xs, a => a.mov))}`));
+  }
+  if (by.children.length) box.append(by);
+}
+
+// Heart-rate trends: efficiency per heartbeat by sport, HR recovery, resting HR.
+const EFF = { Run: a => a.mpb, Swim: a => a.mpb, Bike: a => (a.ef && a.hr ? a.ef : null) };
+const dayNum = d => Date.parse(d + "T00:00:00Z") / 864e5;
+const fromDayNum = n => fmtD(new Date(n * 864e5).toISOString().slice(0, 10));
+function renderHr(acts) {
+  const sports = ["Swim", "Bike", "Run"].filter(s => S.sports.has(s));
+  const series = {};
+  for (const sp of sports) {
+    const all = D.acts.filter(a => a.sport === sp && !a.race && EFF[sp](a)).sort((a, b) => (a.d < b.d ? -1 : 1));
+    if (all.length < 2) { if (all.length) series[sp] = { all: [], n: all.length }; continue; }
+    const base = all.slice(0, 3).reduce((s, a) => s + EFF[sp](a), 0) / Math.min(3, all.length);
+    const pts = all.map(a => ({ x: dayNum(a.d), y: +(100 * EFF[sp](a) / base).toFixed(1), a }));
+    const roll = pts.map((p, i) => { const w = pts.slice(Math.max(0, i - 2), i + 1); return { x: p.x, y: +(w.reduce((s, q) => s + q.y, 0) / w.length).toFixed(1), a: p.a }; });
+    series[sp] = { pts: pts.filter(p => inRange(p.a.d)), roll: roll.filter(p => inRange(p.a.d)), all: pts, n: pts.length };
+  }
+  const k = clear("hrKpis");
+  for (const sp of sports) {
+    const s = series[sp];
+    if (!s || s.n < 4) { k.append(tileEl(`${sp} efficiency`, "–", s ? `${s.n} session(s) with HR so far, needs 4+` : "no sessions with HR yet")); continue; }
+    const chg = s.all.slice(-3).reduce((a, p) => a + p.y, 0) / 3 - 100;
+    k.append(tileEl(`${sp} efficiency`, `${chg >= 0 ? "+" : "−"}${Math.abs(chg).toFixed(0)}%`, `last 3 vs first 3 sessions (${s.n} total)`, chg >= 2 ? "st-good" : chg <= -2 ? "st-serious" : ""));
+  }
+  const rh = D.well.filter(w => w.rhr != null);
+  if (rh.length >= 21) {
+    const avg = xs => xs.reduce((a, w) => a + w.rhr, 0) / xs.length;
+    const dlt = avg(rh.slice(-7)) - avg(rh.slice(0, 14));
+    k.append(tileEl("Resting HR", `${avg(rh.slice(-7)).toFixed(0)} bpm`, `7-day avg · ${dlt >= 0 ? "+" : "−"}${Math.abs(dlt).toFixed(1)} vs your first 2 weeks`, dlt <= -1 ? "st-good" : dlt >= 2 ? "st-serious" : ""));
+  }
+  const ds = [];
+  for (const sp of sports) {
+    const s = series[sp]; if (!s || !s.pts || !s.pts.length) continue;
+    ds.push({ type: "scatter", label: sp, data: s.roll, borderColor: COL[sp], backgroundColor: COL[sp], showLine: true, borderWidth: 2, pointRadius: 0, pointHitRadius: 0, tension: 0.25 });
+    ds.push({ type: "scatter", label: sp + " sessions", data: s.pts, backgroundColor: COL[sp], borderColor: COL.surface, borderWidth: 1, pointRadius: 4, pointHoverRadius: 6 });
+  }
+  const xScale = { type: "linear", min: dayNum(S.from), max: dayNum(S.to), grid: { display: false }, ticks: { callback: fromDayNum, maxTicksLimit: 5 } };
+  if (!showEmpty("cEffIdx", !ds.length, "Needs sessions with HR in this range"))
+    mk("cEffIdx", { data: { datasets: [...ds, { type: "scatter", label: "start = 100", data: [{ x: dayNum(S.from), y: 100 }, { x: dayNum(S.to), y: 100 }], showLine: true, borderColor: COL.muted, borderDash: [4, 4], borderWidth: 1, pointRadius: 0, pointHitRadius: 0 }] },
+      options: opts({ interaction: { mode: "nearest", intersect: true }, scales: { x: xScale },
+        plugins: { legend: { labels: { filter: i => !i.text.endsWith(" sessions") } },
+          tooltip: { filter: i => !!(i.raw && i.raw.a) && i.dataset.label.endsWith(" sessions"), callbacks: { title: it => `${fmtD(it[0].raw.a.d)} · ${it[0].raw.a.name}`,
+            label: c => { const a = c.raw.a; const m = a.sport === "Bike" ? `EF ${a.ef.toFixed(2)} (NP ${a.np ?? "–"} W, HR ${Math.round(a.hr)})` : `${a.mpb.toFixed(2)} m/beat (HR ${Math.round(a.hr)})`;
+              return ` ${a.sport}: index ${c.parsed.y} · ${m}`; } } } } }) });
+  const hp = acts.filter(a => a.hrr).map(a => ({ x: dayNum(a.d), y: a.hrr.drop, a }));
+  const hsp = SPORTS.filter(sp => hp.some(p => p.a.sport === sp));
+  if (!showEmpty("cHrr", !hp.length, "No HR-recovery measurements in this range"))
+    mk("cHrr", { data: { datasets: hsp.map(sp => ({ type: "scatter", label: sp, data: hp.filter(p => p.a.sport === sp), backgroundColor: COL[sp], borderColor: COL.surface, borderWidth: 1, pointRadius: 6, pointHoverRadius: 8 })) },
+      options: opts({ interaction: { mode: "nearest", intersect: true }, scales: { x: xScale, y: { title: { display: true, text: "bpm drop in 60 s", color: COL.muted } } },
+        plugins: { tooltip: { callbacks: { title: it => `${fmtD(it[0].raw.a.d)} · ${it[0].raw.a.name}`, label: c => ` −${c.parsed.y} bpm in 60 s (from ${c.raw.a.hrr.from} bpm)` } } } }) });
+}
+
 function renderProjection() {
   const P = D.projection, L = P.legs, B = P.budget, tot = projTotal();
   document.getElementById("projSub").textContent = tot
@@ -622,14 +739,24 @@ function renderProjection() {
   tb.append(el("tr", {}, el("th", {}, "Leg"), el("th", {}, "Projected"), el("th", {}, "Sub-3 budget"), el("th", {}, "Gap")));
   for (const k of ["Swim", "T1", "Bike", "T2", "Run"]) {
     const gap = L[k] != null ? L[k] - B[k] : null;
-    tb.append(el("tr", { class: k === weak && gap > 0 ? "weak" : "" }, el("td", {}, k), el("td", {}, fmtHMS(L[k])), el("td", {}, fmtHMS(B[k])),
+    tb.append(el("tr", { class: k === weak ? "weak" : "" }, el("td", {}, k), el("td", {}, fmtHMS(L[k])), el("td", {}, fmtHMS(B[k])),
       el("td", { class: gap == null ? "" : gap > 0 ? "st-serious" : "st-good" }, gap == null ? "–" : fmtDelta(gap))));
   }
   const bt = Object.values(B).reduce((a, b) => a + b, 0);
   tb.append(el("tr", { class: "total" }, el("td", {}, "Total"), el("td", {}, fmtHMS(tot)), el("td", {}, fmtHMS(bt)), el("td", { class: tot > bt ? "st-serious" : "st-good" }, tot ? fmtDelta(tot - bt) : "–")));
+  const H = (P.history || []).filter(h => inRange(h.d));
+  const hTot = h => h.Swim + h.T1 + h.Bike + h.T2 + h.Run;
+  if (!showEmpty("cProjHist", !H.length, "No projection yet in this range"))
+    mk("cProjHist", { data: { labels: H.map(h => fmtD(h.d)), datasets: [
+        line("Projected finish", H.map(hTot), COL.accent, { stepped: true, tension: 0 }),
+        line("3:00:00 goal", H.map(() => D.race.goal), COL.muted, { borderWidth: 1, borderDash: [4, 4], tension: 0 })] },
+      options: opts({ scales: { y: { ticks: { stepSize: 120, callback: v => fmtHMS(v) } } }, plugins: { tooltip: { callbacks: {
+        label: c => c.datasetIndex ? null : ` ${fmtHMS(c.parsed.y)} (${fmtDelta(c.parsed.y - D.race.goal)} vs 3:00)`,
+        afterLabel: c => { if (c.datasetIndex) return null; const h = H[c.dataIndex];
+          return `Swim ${fmtHMS(h.Swim)} · Bike ${fmtHMS(h.Bike)} · Run ${fmtHMS(h.Run)} · T ${fmtHMS(h.T1 + h.T2)}`; } } } } }) });
   const a = clear("projAssume"); P.assumptions.forEach(x => a.append(el("li", {}, x)));
   const c = clear("projCross"); P.cross.forEach(x => c.append(el("li", {}, x)));
-  if (weak && L[weak] > B[weak]) c.append(el("li", {}, `Weakest link = the leg furthest over its sub-3 budget in relative terms: ${weak} (${fmtDelta(L[weak] - B[weak])}, ${Math.round(100 * (L[weak] - B[weak]) / B[weak])}% over).`));
+  if (weak) { const pct = Math.round(100 * (L[weak] - B[weak]) / B[weak]); c.append(el("li", {}, `Weakest link = the swim, bike or run leg with the least margin against its sub-3 budget: ${weak} (${fmtDelta(L[weak] - B[weak])}, ${pct > 0 ? pct + "% over" : Math.abs(pct) + "% under"}).`)); }
 }
 
 function renderFlags() {
