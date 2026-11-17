@@ -142,8 +142,9 @@ def power_label(cid, label):
 def css_history(acts_raw, swim_setting, attempts, tests, today):
     """CSS over time: tests estimated from the watch's lengths, plus changes to the intervals.icu swim
     threshold pace. A test swim still carries the old threshold, so a change is dated to the latest
-    CSS test since the previous change (else the day it first appears). On the same day, the
-    intervals.icu value wins over the watch estimate."""
+    CSS test since the previous change (else the day it first appears). A test with no watch result
+    and no threshold change after it confirmed the threshold, so that value is its result. On the
+    same day, the intervals.icu value wins over the watch estimate."""
     hist = [{"d": t["date"], "css": t["css"], "src": "watch", "t400": t["t400"], "t200": t["t200"]} for t in tests]
     swims = sorted((a for a in acts_raw if SPORTS.get(a.get("type")) == "Swim" and a.get("threshold_pace")),
                    key=lambda a: a["start_date_local"])
@@ -157,7 +158,14 @@ def css_history(acts_raw, swim_setting, attempts, tests, today):
             last = t[-1] if t else d
             hist.append({"d": last, "css": v, "src": "intervals.icu"})
         prev = v
-    return sorted(hist, key=lambda h: (h["d"], h["src"] == "intervals.icu"))
+    for d in attempts:
+        if not any(h["d"] == d for h in hist):
+            # threshold in effect after the test: the next swim's recorded value, else today's setting
+            after = next((v for sd, v in seen if sd > d), seen[-1][1] if seen else None)
+            if after:
+                hist.append({"d": d, "css": after, "src": "unchanged"})
+    rank = {"watch": 0, "unchanged": 1, "intervals.icu": 2}
+    return sorted(hist, key=lambda h: (h["d"], rank[h["src"]]))
 
 
 def css_at(hist, d, fallback):
@@ -419,6 +427,8 @@ def main():
     elif cur["src"] == "watch":
         css_src = (f"CSS test {cur['d']}, estimated from the watch's lengths (400 ~{cur['t400'] // 60}:{cur['t400'] % 60:02d}, "
                    f"200 ~{cur['t200'] // 60}:{cur['t200'] % 60:02d})")
+    elif cur["src"] == "unchanged":
+        css_src = f"CSS test {cur['d']}: intervals.icu swim threshold pace, unchanged after the test"
     else:
         css_src = f"intervals.icu swim threshold pace, set after the CSS test on {cur['d']}"
     # Tests whose result neither the watch nor a later intervals.icu change provides

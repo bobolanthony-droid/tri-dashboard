@@ -587,7 +587,9 @@ function renderPlan() {
 function renderSwim(sw) {
   const box = clear("cssBox");
   const H = D.css.history, t = H[H.length - 1];
-  const how = h => (h.src === "watch" ? `estimated from the watch's lengths (400 m ≈ ${fmtHMS(h.t400)}, 200 m ≈ ${fmtHMS(h.t200)})` : "from your intervals.icu swim threshold pace");
+  const how = h => (h.src === "watch" ? `estimated from the watch's lengths (400 m ≈ ${fmtHMS(h.t400)}, 200 m ≈ ${fmtHMS(h.t200)})`
+    : h.src === "unchanged" ? "your intervals.icu swim threshold pace, which you kept after the test (the watch's lengths didn't show a clean 400 and 200). If your result was different, update it there"
+    : "from your intervals.icu swim threshold pace");
   const ex = el("div", { class: "explain" });
   if (t) {
     ex.append(el("div", {}, el("b", {}, `CSS ${fmtPace(t.css)}/100 m`), ` since your CSS test on ${fmtD(t.d)}, ${how(t)}.`));
