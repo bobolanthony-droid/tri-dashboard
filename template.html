@@ -55,6 +55,12 @@ input[type=date], input[type=password] { background: var(--surface-2); color: va
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: right; padding: 7px 4px; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
 td { white-space: nowrap; }
+html { scroll-behavior: smooth; }
+section { scroll-margin-top: 8px; }
+a.chip { text-decoration: none; display: inline-flex; align-items: center; }
+#scoreTable td:first-child { white-space: normal; }
+#scoreTable tr.grp td { color: var(--muted); font-size: 12px; padding-top: 12px; border-top: none; }
+details.older summary { cursor: pointer; color: var(--ink-2); font-size: 13px; padding: 8px 0; }
 #swimTable { font-size: 13px; }
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: none; }
@@ -105,8 +111,20 @@ a { color: var(--accent); }
     </div>
     <p class="small" style="margin:4px 0 0">Tap a chart to see values; tap the same spot again or anywhere outside to hide them.</p>
   </div>
+  <nav class="row" aria-label="Jump to section" style="margin-top:10px">
+    <a class="chip" href="#sec-score">Progress</a><a class="chip" href="#sec-week">Week</a><a class="chip" href="#sec-progress">Load</a>
+    <a class="chip" href="#sec-swim">Swim</a><a class="chip" href="#sec-bike">Bike</a><a class="chip" href="#sec-run">Run</a>
+    <a class="chip" href="#sec-hr">Heart rate</a><a class="chip" href="#sec-proj">Race</a>
+  </nav>
 
   <section class="kpis" id="kpis" style="margin-top:12px"></section>
+
+  <section class="card" id="sec-score">
+    <h2>Progress: last 4 weeks vs the 4 before</h2>
+    <p class="small" style="margin:0">▲ better · ▼ worse · ≈ steady, for the same metric over two 28-day windows ending today. Not affected by the filters.</p>
+    <ul class="list" id="scoreAlerts"></ul>
+    <table id="scoreTable"></table>
+  </section>
 
   <section class="card" id="sec-week">
     <h2>This week</h2>
@@ -120,16 +138,17 @@ a { color: var(--accent); }
     <div class="chart"><canvas id="cHours"></canvas></div>
     <h3 id="loadTitle">Training load by sport</h3>
     <div class="chart"><canvas id="cLoad"></canvas></div>
-    <h3>Fitness and fatigue</h3>
+    <h3>Fitness, fatigue and form</h3>
     <div class="explain">
       <div><b>Fitness (CTL)</b> – your 42-day average daily training load. It rises slowly as you build; this is the number to grow toward race day.</div>
       <div><b>Fatigue (ATL)</b> – your 7-day average daily load. It reacts fast to hard weeks and drops fast with rest.</div>
       <div><b>Form (TSB)</b> = fitness − fatigue. Negative means you are carrying fatigue from training (normal in build weeks; below −30 is a lot). Around 0 to +15 on race day means fresh.</div>
       <div><b>Ramp flag</b> – a week where fitness rises by 5 or more. That is a steep build; sustained, it raises injury and illness risk.</div>
     </div>
-    <div class="chart"><canvas id="cCtl"></canvas></div>
-    <h3>Form (TSB)</h3>
-    <div class="chart"><canvas id="cTsb"></canvas></div>
+    <div class="chart tall"><canvas id="cCtl"></canvas></div>
+    <h3>Fitness vs race-day target</h3>
+    <div class="chart"><canvas id="cTarget"></canvas></div>
+    <p class="small" id="targetNote"></p>
     <h3>Weekly change in fitness</h3>
     <div class="chart"><canvas id="cRamp"></canvas></div>
     <ul class="list" id="rampList"></ul>
@@ -159,19 +178,15 @@ a { color: var(--accent); }
     <p class="small" id="ftpNote"></p>
     <h3>Power curve</h3>
     <div class="chart"><canvas id="cPower"></canvas></div>
-    <h3>Efficiency factor (normalised power ÷ heart rate)</h3>
-    <div class="chart"><canvas id="cEf"></canvas></div>
     <h3>Aerobic drift (power:HR decoupling)</h3>
     <div class="chart"><canvas id="cDrift"></canvas></div>
-    <p class="small">EF: higher = more watts per heartbeat; compare similar steady rides. Drift: how much HR rose relative to power from the first to the second half; under 5% indicates good aerobic durability for that duration. Only rides with both power and HR appear.</p>
+    <p class="small">Drift: how much HR rose relative to power from the first to the second half; under 5% indicates good aerobic durability for that duration. Only rides with both power and HR appear. Bike efficiency (EF) and power at Z2 heart rate are in Heart-rate trends.</p>
   </section>
 
   <section class="card" id="sec-run">
     <h2>Run</h2>
     <h3>Pace vs heart rate, per run</h3>
     <div class="chart tall"><canvas id="cRunScatter"></canvas></div>
-    <h3>Running efficiency over time (metres per heartbeat)</h3>
-    <div class="chart"><canvas id="cRunEff"></canvas></div>
     <p class="small" id="runNote"></p>
   </section>
 
@@ -182,6 +197,10 @@ a { color: var(--accent); }
     <h3>Aerobic efficiency by sport (your first 3 sessions = 100)</h3>
     <div class="chart tall"><canvas id="cEffIdx"></canvas></div>
     <p class="small">Higher = more speed or power per heartbeat. Run and swim: metres per heartbeat (swim uses swimming lengths only, rests removed). Bike: efficiency factor (normalised power ÷ HR), Zwift rides only, since outdoor rides have no power. Dots are sessions; the line is the average of the last 3. Wrist HR in the pool is less reliable, so read swim trends loosely.</p>
+    <h3>Like-for-like: speed at your Z2 heart rate</h3>
+    <p class="small" style="margin:0">Average pace or power over the seconds you spent in your Z2 band (run 141–149 bpm, bike 135–149 bpm, from your intervals.icu zones), skipping the first 5 minutes. Only sessions with 5+ minutes in the band count. It rises only when you are actually fitter, whatever the session type.</p>
+    <div class="z2"><h3>Run pace at Z2 (faster ↑)</h3><div class="chart"><canvas id="cZ2Run"></canvas></div></div>
+    <div class="z2"><h3>Bike power at Z2</h3><div class="chart"><canvas id="cZ2Bike"></canvas></div></div>
     <h3>Heart-rate recovery (bpm drop in the 60 s after your hardest effort)</h3>
     <div class="chart"><canvas id="cHrr"></canvas></div>
     <p class="small">intervals.icu measures this when a session has a clear hard effort followed by easing off. A bigger drop over the weeks = better fitness. Compare within the same sport.</p>
@@ -213,6 +232,7 @@ a { color: var(--accent); }
     <h2>Data quality</h2>
     <div class="row" id="flagCounts"></div>
     <ul class="list" id="flagList"></ul>
+    <details class="older" id="flagOlderBox"><summary id="flagOlderSum"></summary><ul class="list" id="flagOlder"></ul></details>
   </section>
 
   <p class="small" style="text-align:center"><button class="chip" id="lockBtn" type="button">Lock &amp; forget password on this device</button></p>
@@ -440,6 +460,7 @@ function render() {
   document.getElementById("sec-bike").classList.toggle("hidden", !S.sports.has("Bike"));
   document.getElementById("sec-run").classList.toggle("hidden", !S.sports.has("Run"));
   renderKpis(acts);
+  renderScore();
   renderWeek();
   renderProgress(acts, well);
   renderPlan();
@@ -465,9 +486,8 @@ function renderKpis(acts) {
   k.append(tile("Fitness · CTL", w ? w.ctl.toFixed(0) : "–", w ? `fatigue ${w.atl.toFixed(0)} · form ${(w.ctl - w.atl).toFixed(0)}` : ""));
   k.append(tile("Projected Olympic", tot ? fmtHMS(tot) : "–", tot ? `${fmtDelta(tot - D.race.goal)} vs 3:00:00` : "", tot && tot <= D.race.goal ? "st-good" : ""));
   k.append(tile("Training in range", `${hrs.toFixed(1)} h`, `${(hrs / nWeeks).toFixed(1)} h/week · ${acts.length} sessions`));
-  const past = planWindow().filter(p => p.d < D.today || (p.d === D.today && p.status.startsWith("done")));
-  const done = past.filter(p => p.status.startsWith("done")).length;
-  k.append(tile("Plan done · 2 weeks", past.length ? `${Math.round(100 * done / past.length)}%` : "–", past.length ? `${done} of ${past.length} planned sessions so far` : "no planned sessions yet"));
+  const vs = scoreRows().map(verdict), up = vs.filter(v => v === 1).length, dn = vs.filter(v => v === -1).length;
+  k.append(tile("Progress · 4 weeks", `${up} ▲ · ${dn} ▼`, `${up} metrics better, ${dn} worse vs the 4 weeks before`, up > dn ? "st-good" : dn > up ? "st-serious" : ""));
 }
 
 // Plan compliance covers last week and this week (Mon–Sun), independent of the date range.
@@ -500,13 +520,27 @@ function renderProgress(acts, well) {
   const ctl = dd.map(d => wm[d]?.ctl ?? null), atl = dd.map(d => wm[d]?.atl ?? null);
   const noWell = !well.some(w => w.ctl != null);
   const r1 = v => v == null ? "–" : v.toFixed(1);
-  if (!showEmpty("cCtl", noWell)) mk("cCtl", { data: { labels: dd.map(fmtD), datasets: [
-      line("Fitness (CTL)", ctl, COL.Swim), line("Fatigue (ATL)", atl, "#d55181", { borderDash: [5, 3] })] },
-    options: opts({ plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${r1(c.parsed.y)}` } } } }) });
   const tsb = dd.map(d => wm[d]?.ctl != null ? +(wm[d].ctl - wm[d].atl).toFixed(1) : null);
-  if (!showEmpty("cTsb", noWell)) mk("cTsb", { data: { labels: dd.map(fmtD), datasets: [
-      bar("Form (TSB)", tsb, tsb.map(v => v >= 0 ? COL.Swim : "#e66767"), { borderRadius: 2, maxBarThickness: 10, borderWidth: 0 })] },
-    options: opts({ plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` Form: ${c.parsed.y > 0 ? "+" : ""}${c.parsed.y} (${c.parsed.y < -30 ? "very fatigued" : c.parsed.y < -10 ? "training fatigue" : c.parsed.y <= 15 ? "neutral / fresh" : "very fresh"})` } } } }) });
+  const formLabel = v => (v < -30 ? "very fatigued" : v < -10 ? "training fatigue" : v <= 15 ? "neutral / fresh" : "very fresh");
+  if (!showEmpty("cCtl", noWell)) mk("cCtl", { data: { labels: dd.map(fmtD), datasets: [
+      line("Fitness (CTL)", ctl, COL.Swim), line("Fatigue (ATL)", atl, "#d55181", { borderDash: [5, 3] }),
+      bar("Form (TSB)", tsb, tsb.map(v => (v >= 0 ? "rgba(57,135,229,0.45)" : "rgba(230,103,103,0.45)")), { borderRadius: 2, maxBarThickness: 8, borderWidth: 0, order: 3 })] },
+    options: opts({ plugins: { tooltip: { callbacks: { label: c => c.dataset.type === "bar"
+      ? ` Form: ${c.parsed.y > 0 ? "+" : ""}${c.parsed.y} (${formLabel(c.parsed.y)})` : ` ${c.dataset.label}: ${r1(c.parsed.y)}` } } } }) });
+  // Fitness vs the race-day target path (always from the path start to race day).
+  const tg = D.target;
+  if (!showEmpty("cTarget", !tg, "Target path starts once there is wellness data")) {
+    // Start 4 weeks before the path so the recent trend leads into it; mark today's value.
+    const tmap = Object.fromEntries(tg.path), td = [];
+    for (let d = addDays(tg.from, -28); d <= tg.path[tg.path.length - 1][0]; d = addDays(d, 1)) td.push(d);
+    const act = td.map(d => (d <= D.today ? wm[d]?.ctl ?? null : null));
+    const lastI = act.reduce((m, v, i) => (v != null ? i : m), -1);
+    mk("cTarget", { data: { labels: td.map(fmtD), datasets: [
+        line("Your fitness (CTL)", act, COL.Swim, { pointRadius: act.map((_, i) => (i === lastI ? 5 : 0)) }),
+        line("Target path", td.map(d => tmap[d] ?? null), COL.muted, { borderDash: [5, 4], borderWidth: 1.5, tension: 0, spanGaps: false })] },
+      options: opts({ plugins: { tooltip: { callbacks: { label: c => (c.parsed.y == null ? null : ` ${c.dataset.label}: ${c.parsed.y.toFixed(1)}`) } } } }) });
+    document.getElementById("targetNote").textContent = `Target: from fitness ${tg.start} on ${fmtD(tg.from)} to ${tg.peak} by ${fmtD(tg.peakDay)} (about +${tg.perWeek} a week, a safe ramp), then a 2-week taper to about ${tg.race} on race day so you start fresh. Above the dashed line = ahead of plan.`;
+  }
 
   // weekly CTL change (always weekly; the ramp flag is a weekly rule)
   const wks = []; for (let k = monday(S.from); k <= S.to; k = addDays(k, 7)) wks.push(k);
@@ -586,9 +620,6 @@ function renderBike(rides, well) {
   const labs = pr.map(r => fmtD(r.d));
   const tip = (fmt) => ({ plugins: { legend: { display: false }, tooltip: { callbacks: { title: it => `${it[0].label} · ${pr[it[0].dataIndex].name}`,
     label: c => fmt(c.parsed.y, pr[c.dataIndex]) } } } });
-  if (!showEmpty("cEf", !pr.length, "No rides with both power and HR in this range"))
-    mk("cEf", { data: { labels: labs, datasets: [bar("EF", pr.map(r => +r.ef.toFixed(2)), COL.Bike)] },
-      options: opts(tip((v, r) => ` EF ${v} · NP ${r.np ?? "–"} W · HR ${Math.round(r.hr)} · ${Math.round(r.mov / 60)} min`)) });
   if (!showEmpty("cDrift", !pr.length, "No rides with both power and HR in this range"))
     mk("cDrift", { data: { labels: labs, datasets: [bar("Drift %", pr.map(r => r.dec != null ? +r.dec.toFixed(1) : null), pr.map(r => r.dec > 5 ? COL.warning : COL.Bike)),
         line("5% guide", pr.map(() => 5), COL.muted, { borderWidth: 1, borderDash: [4, 4], tension: 0 })] },
@@ -607,14 +638,7 @@ function renderRun(runs) {
                   y: { reverse: true, title: { display: true, text: "Pace /km (faster ↑)", color: COL.muted }, ticks: { callback: fmtPace } } },
         plugins: { legend: { labels: { pointStyle: undefined, usePointStyle: true } }, tooltip: { callbacks: { title: it => { const r = it[0].raw.r; return `${fmtD(r.d)} · ${r.name}`; },
           label: c => { const r = c.raw.r; return ` ${(r.dist / 1000).toFixed(1)} km · ${fmtPace(r.pace)}/km · HR ${Math.round(r.hr)}`; } } } } }) });
-  const ok = runs.filter(r => r.mpb);
-  if (!showEmpty("cRunEff", !ok.length))
-    mk("cRunEff", { data: { labels: ok.map(r => fmtD(r.d)), datasets: [
-        line("Short runs", ok.map(r => !r.long ? +r.mpb.toFixed(2) : null), COL.Run, { pointRadius: 4 }),
-        line("Longer runs", ok.map(r => r.long ? +r.mpb.toFixed(2) : null), COL.Swim, { pointRadius: 4, pointStyle: "rectRounded" })] },
-      options: opts({ interaction: { mode: "nearest", intersect: false }, plugins: { tooltip: { callbacks: { title: it => `${it[0].label} · ${ok[it[0].dataIndex].name}`,
-        label: c => c.parsed.y == null ? null : ` ${c.parsed.y} m per beat · ${(ok[c.dataIndex].dist / 1000).toFixed(1)} km at ${fmtPace(ok[c.dataIndex].pace)}/km` } } } }) });
-  document.getElementById("runNote").textContent = `Longer runs = ${D.longRunM / 1000} km or more. Higher metres per heartbeat = more speed for the same effort; compare runs of similar length and terrain. The 13 Sep sprint-tri file (26.7 km logged as one run) is excluded; the race's separate 5 km run leg is shown as a triangle.`;
+  document.getElementById("runNote").textContent = `Longer runs = ${D.longRunM / 1000} km or more. Run efficiency over time and pace at Z2 heart rate are in Heart-rate trends. The 13 Sep sprint-tri file (26.7 km logged as one run) is excluded; the race's separate 5 km run leg is shown as a triangle.`;
 }
 
 function baseline(vals) { // previous-28-day mean, needs >= 7 values
@@ -701,12 +725,6 @@ function renderHr(acts) {
     const chg = s.all.slice(-3).reduce((a, p) => a + p.y, 0) / 3 - 100;
     k.append(tileEl(`${sp} efficiency`, `${chg >= 0 ? "+" : "−"}${Math.abs(chg).toFixed(0)}%`, `last 3 vs first 3 sessions (${s.n} total)`, chg >= 2 ? "st-good" : chg <= -2 ? "st-serious" : ""));
   }
-  const rh = D.well.filter(w => w.rhr != null);
-  if (rh.length >= 21) {
-    const avg = xs => xs.reduce((a, w) => a + w.rhr, 0) / xs.length;
-    const dlt = avg(rh.slice(-7)) - avg(rh.slice(0, 14));
-    k.append(tileEl("Resting HR", `${avg(rh.slice(-7)).toFixed(0)} bpm`, `7-day avg · ${dlt >= 0 ? "+" : "−"}${Math.abs(dlt).toFixed(1)} vs your first 2 weeks`, dlt <= -1 ? "st-good" : dlt >= 2 ? "st-serious" : ""));
-  }
   const ds = [];
   for (const sp of sports) {
     const s = series[sp]; if (!s || !s.pts || !s.pts.length) continue;
@@ -721,6 +739,23 @@ function renderHr(acts) {
           tooltip: { filter: i => !!(i.raw && i.raw.a) && i.dataset.label.endsWith(" sessions"), callbacks: { title: it => `${fmtD(it[0].raw.a.d)} · ${it[0].raw.a.name}`,
             label: c => { const a = c.raw.a; const m = a.sport === "Bike" ? `EF ${a.ef.toFixed(2)} (NP ${a.np ?? "–"} W, HR ${Math.round(a.hr)})` : `${a.mpb.toFixed(2)} m/beat (HR ${Math.round(a.hr)})`;
               return ` ${a.sport}: index ${c.parsed.y} · ${m}`; } } } } }) });
+  // Like-for-like: pace / power in the Z2 HR band, per session, with a 3-session rolling line.
+  for (const [id, sp, key, fmtV, rev] of [["cZ2Run", "Run", "pace", v => `${fmtPace(v)}/km`, true], ["cZ2Bike", "Bike", "w", v => `${Math.round(v)} W`, false]]) {
+    const wrap = document.getElementById(id).closest(".z2");
+    wrap.classList.toggle("hidden", !S.sports.has(sp));
+    if (!S.sports.has(sp)) continue;
+    const all = D.acts.filter(a => a.sport === sp && a.z2 && a.z2[key]).sort((a, b) => (a.d < b.d ? -1 : 1));
+    const pts = all.map(a => ({ x: dayNum(a.d), y: +a.z2[key].toFixed(1), a }));
+    const roll = pts.map((p, i) => { const w = pts.slice(Math.max(0, i - 2), i + 1); return { x: p.x, y: +(w.reduce((s, q) => s + q.y, 0) / w.length).toFixed(1), a: p.a }; });
+    const inR = q => inRange(q.a.d);
+    if (showEmpty(id, !pts.some(inR), `No ${sp.toLowerCase()} with 5+ min in your Z2 heart-rate band in this range`)) continue;
+    mk(id, { data: { datasets: [
+        { type: "scatter", label: "3-session average", data: roll.filter(inR), borderColor: COL[sp], backgroundColor: COL[sp], showLine: true, borderWidth: 2, pointRadius: 0, pointHitRadius: 0, tension: 0.25 },
+        { type: "scatter", label: "Sessions", data: pts.filter(inR), backgroundColor: COL[sp], borderColor: COL.surface, borderWidth: 1, pointRadius: 5, pointHoverRadius: 7 }] },
+      options: opts({ interaction: { mode: "nearest", intersect: true }, scales: { x: xScale, y: { reverse: rev, ticks: { callback: v => fmtV(v) } } },
+        plugins: { legend: { display: false }, tooltip: { filter: i => i.datasetIndex === 1, callbacks: { title: it => `${fmtD(it[0].raw.a.d)} · ${it[0].raw.a.name}`,
+          label: c => { const z = c.raw.a.z2; return ` ${fmtV(c.parsed.y)} at ${z.lo}–${z.hi} bpm (${Math.round(z.secs / 60)} min in band)`; } } } } }) });
+  }
   const hp = acts.filter(a => a.hrr).map(a => ({ x: dayNum(a.d), y: a.hrr.drop, a }));
   const hsp = SPORTS.filter(sp => hp.some(p => p.a.sport === sp));
   if (!showEmpty("cHrr", !hp.length, "No HR-recovery measurements in this range"))
@@ -728,6 +763,77 @@ function renderHr(acts) {
       options: opts({ interaction: { mode: "nearest", intersect: true }, scales: { x: xScale, y: { title: { display: true, text: "bpm drop in 60 s", color: COL.muted } } },
         plugins: { tooltip: { callbacks: { title: it => `${fmtD(it[0].raw.a.d)} · ${it[0].raw.a.name}`, label: c => ` −${c.parsed.y} bpm in 60 s (from ${c.raw.a.hrr.from} bpm)` } } } }) });
 }
+
+// Progress scorecard: last 28 days vs the 28 before, independent of the filters.
+const SC_GROUPS = ["Volume", "Fitness", "Speed at Z2 heart rate", "Efficiency", "Endurance", "Recovery"];
+function scoreRows() {
+  const t = D.today, c = addDays(t, -27), pe = addDays(t, -28), p = addDays(t, -55);
+  const inNow = a => a.d >= c && a.d <= t, inPrev = a => a.d >= p && a.d <= pe;
+  const acts = D.acts.filter(a => !a.race);
+  const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const hrs = (f, sp) => { const xs = acts.filter(a => f(a) && (!sp || a.sport === sp)); return xs.length || !sp ? xs.reduce((s, a) => s + a.mov, 0) / 3600 / 4 : 0; };
+  const avg = (f, sel, val) => mean(acts.filter(a => f(a) && sel(a)).map(val));
+  const longest = (f, sp) => { const xs = acts.filter(a => f(a) && a.sport === sp && a.dist).map(a => a.dist); return xs.length ? Math.max(...xs) : null; };
+  const wavg = (lo, hi, k) => mean(D.well.filter(w => w.d >= lo && w.d <= hi && w[k] != null).map(w => w[k]));
+  const ctlAt = d => { const w = [...D.well].reverse().find(w => w.d <= d && w.ctl != null); return w ? w.ctl : null; };
+  const H = D.projection.history || [];
+  const projAt = d => { const h = [...H].reverse().find(h => h.d <= d); return h ? h.Swim + h.T1 + h.Bike + h.T2 + h.Run : null; };
+  const pool = a => a.sport === "Swim" && a.swim && a.swim.set && !a.swim.ow;
+  const hm = v => fmtHM(v * 3600), km = v => `${(v / 1000).toFixed(1)} km`;
+  // [group, label, now, before, better ("up" | "down" | null), format, tolerance in the metric's own units]
+  return [
+    ["Volume", "Hours / week", hrs(inNow), hrs(inPrev), "up", hm, 0.1],
+    ["Volume", "Swim hours / week", hrs(inNow, "Swim"), hrs(inPrev, "Swim"), "up", hm, 0.05],
+    ["Volume", "Bike hours / week", hrs(inNow, "Bike"), hrs(inPrev, "Bike"), "up", hm, 0.05],
+    ["Volume", "Run hours / week", hrs(inNow, "Run"), hrs(inPrev, "Run"), "up", hm, 0.05],
+    ["Volume", "Padel hours / week", hrs(inNow, "Padel"), hrs(inPrev, "Padel"), null, hm, 0.05],
+    ["Fitness", "Fitness (CTL)", ctlAt(t), ctlAt(pe), "up", v => v.toFixed(1), 1],
+    ["Fitness", "Projected finish", projAt(t), projAt(pe), "down", fmtHMS, 30],
+    ["Speed at Z2 heart rate", "Run pace at Z2", avg(inNow, a => a.z2 && a.z2.pace, a => a.z2.pace), avg(inPrev, a => a.z2 && a.z2.pace, a => a.z2.pace), "down", v => fmtPace(v) + "/km", 3],
+    ["Speed at Z2 heart rate", "Bike power at Z2", avg(inNow, a => a.z2 && a.z2.w, a => a.z2.w), avg(inPrev, a => a.z2 && a.z2.w, a => a.z2.w), "up", v => `${Math.round(v)} W`, 3],
+    ["Speed at Z2 heart rate", "Swim pace (lengths)", avg(inNow, pool, a => a.swim.set), avg(inPrev, pool, a => a.swim.set), "down", v => fmtPace(v) + "/100m", 1],
+    ["Efficiency", "Run m per heartbeat", avg(inNow, a => a.sport === "Run" && a.mpb, a => a.mpb), avg(inPrev, a => a.sport === "Run" && a.mpb, a => a.mpb), "up", v => v.toFixed(2), 0.02],
+    ["Efficiency", "Swim m per heartbeat", avg(inNow, a => a.sport === "Swim" && a.mpb, a => a.mpb), avg(inPrev, a => a.sport === "Swim" && a.mpb, a => a.mpb), "up", v => v.toFixed(2), 0.01],
+    ["Efficiency", "Bike EF (power ÷ HR)", avg(inNow, a => a.sport === "Bike" && a.ef && a.hr, a => a.ef), avg(inPrev, a => a.sport === "Bike" && a.ef && a.hr, a => a.ef), "up", v => v.toFixed(2), 0.02],
+    ["Endurance", "Longest swim", longest(inNow, "Swim"), longest(inPrev, "Swim"), "up", v => `${Math.round(v)} m`, 50],
+    ["Endurance", "Longest ride", longest(inNow, "Bike"), longest(inPrev, "Bike"), "up", km, 1000],
+    ["Endurance", "Longest run", longest(inNow, "Run"), longest(inPrev, "Run"), "up", km, 500],
+    ["Recovery", "Resting HR", wavg(c, t, "rhr"), wavg(p, pe, "rhr"), "down", v => `${v.toFixed(1)} bpm`, 1],
+    ["Recovery", "Sleep / night", wavg(c, t, "sleep"), wavg(p, pe, "sleep"), "up", hm, 0.15],
+  ];
+}
+function verdict([, , now, before, better, , tol]) {
+  if (now == null || before == null) return null;
+  if (Math.abs(now - before) < tol || !better) return 0;
+  return (now > before) === (better === "up") ? 1 : -1;
+}
+function renderScore() {
+  const rows = scoreRows();
+  const al = clear("scoreAlerts");
+  for (const sp of ["Swim", "Bike", "Run"]) {
+    const last = D.acts.filter(a => a.sport === sp && !a.race).map(a => a.d).sort().pop();
+    const gap = last ? Math.round((new Date(D.today) - new Date(last)) / 864e5) : null;
+    if (gap == null || gap >= 10) al.append(el("li", {}, el("span", { class: "pill st-serious" }, "⚠ gap"),
+      el("span", { class: "t" }, gap == null ? `No ${sp.toLowerCase()} logged yet.` : `No ${sp.toLowerCase()} for ${gap} days (last: ${fmtD(last)}).`)));
+  }
+  const tg = D.target, tv = tg && targetAt(D.today), w = latestWell();
+  if (tv != null && w) {
+    const diff = w.ctl - tv;
+    al.append(el("li", {}, el("span", { class: "pill " + (diff < -3 ? "st-warning" : "st-good") }, diff < -3 ? "⚠ behind" : "✓ on track"),
+      el("span", { class: "t" }, `Fitness ${w.ctl.toFixed(1)} vs race-day target path ${tv.toFixed(1)} (${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(1)}).`)));
+  }
+  const tb = clear("scoreTable");
+  tb.append(el("tr", {}, el("th", {}, "Metric"), el("th", {}, "4 wks before"), el("th", {}, "Last 4 wks"), el("th", {}, "Trend")));
+  for (const g of SC_GROUPS) {
+    tb.append(el("tr", { class: "grp" }, el("td", { colspan: "4" }, g)));
+    for (const r of rows.filter(r => r[0] === g)) {
+      const v = verdict(r), f = r[5];
+      const [lab, cls] = v === null ? ["– no data", "st-muted"] : v === 1 ? ["▲ better", "st-good"] : v === -1 ? ["▼ worse", "st-serious"] : [r[4] ? "≈ steady" : "· info", "st-muted"];
+      tb.append(el("tr", {}, el("td", {}, r[1]), el("td", {}, r[3] == null ? "–" : f(r[3])), el("td", {}, r[2] == null ? "–" : f(r[2])), el("td", { class: cls }, lab)));
+    }
+  }
+}
+function targetAt(d) { const p = D.target && D.target.path.find(x => x[0] === d); return p ? p[1] : null; }
 
 function renderProjection() {
   const P = D.projection, L = P.legs, B = P.budget, tot = projTotal();
@@ -765,9 +871,14 @@ function renderFlags() {
   const cnt = {}; f.forEach(x => cnt[x.kind] = (cnt[x.kind] || 0) + 1);
   const r = clear("flagCounts");
   for (const [k, n] of Object.entries(cnt)) r.append(el("span", { class: "pill st-warning" }, `⚠ ${k}: ${n}`));
+  const recentCut = addDays(D.today, -13), recent = f.filter(x => x.d >= recentCut), older = f.filter(x => x.d < recentCut);
+  const row = x => el("li", {}, el("span", { class: "d" }, fmtD(x.d)), el("span", { class: "t" }, el("b", {}, x.kind + ": "), x.msg));
   const l = clear("flagList");
-  if (!f.length) l.append(el("li", {}, el("span", { class: "pill st-good" }, "✓ clean"), el("span", { class: "t" }, "No data-quality issues in this range.")));
-  for (const x of f) l.append(el("li", {}, el("span", { class: "d" }, fmtD(x.d)), el("span", { class: "t" }, el("b", {}, x.kind + ": "), x.msg)));
+  if (!recent.length) l.append(el("li", {}, el("span", { class: "pill st-good" }, "✓ clean"), el("span", { class: "t" }, "No new data-quality issues in the last 14 days.")));
+  recent.forEach(x => l.append(row(x)));
+  const o = clear("flagOlder"); older.forEach(x => o.append(row(x)));
+  document.getElementById("flagOlderBox").classList.toggle("hidden", !older.length);
+  document.getElementById("flagOlderSum").textContent = `Older issues (${older.length})`;
 }
 </script>
 </body>

@@ -30,6 +30,11 @@ COMBINED_RACE_DATE = "2026-09-13"       # sprint tri logged as one 26.7 km "run"
 LONG_RUN_M = 6000                       # runs at/above this count as "longer"
 SWIM_REST_FACTOR = 1.35                 # a length slower than 1.35x median includes rest
 PBKDF2_ITER = 310_000
+Z2_WARMUP_S = 300                       # ignore the first 5 min (HR still rising)
+Z2_MIN_S = 300                          # a session needs 5+ min in the Z2 band to count
+TARGET_FROM = "2026-11-17"              # fitness target path starts here, from that day's CTL
+TARGET_PEAK_CTL = 50                    # race-ready fitness for an age-group Olympic, reached 2 weeks out
+TARGET_TAPER_DAYS = 14                  # taper: fitness eases ~10% into race day
 
 SPORTS = {
     "Swim": "Swim", "OpenWaterSwim": "Swim",
@@ -137,6 +142,44 @@ def riegel(t, d_from, d_to, k=1.06):
     return t * (d_to / d_from) ** k
 
 
+def z2_benchmark(a, sport):
+    """Average run pace or bike power over the seconds spent in the athlete's Z2 HR band."""
+    st = load(f"streams/{a['id']}.json", None)
+    zones = a.get("icu_hr_zones") or []
+    if not st or len(zones) < 2:
+        return None
+    lo, hi = zones[0], zones[1]   # Z2 = above the top of Z1, up to the top of Z2
+    hr, v, w = st.get("heartrate") or [], st.get("velocity_smooth") or [], st.get("watts") or []
+    src, floor = (v, 1.8) if sport == "Run" else (w, 30)   # ignore walking / soft-pedalling
+    vals = [src[i] for i in range(Z2_WARMUP_S, min(len(hr), len(src)))
+            if hr[i] and lo < hr[i] <= hi and src[i] and src[i] > floor]
+    if len(vals) < Z2_MIN_S:
+        return None
+    m = sum(vals) / len(vals)
+    return {"lo": lo + 1, "hi": hi, "secs": len(vals), **({"pace": 1000 / m} if sport == "Run" else {"w": round(m)})}
+
+
+def target_path(wellness):
+    """Daily target CTL: linear build from TARGET_FROM to the peak, then a taper into race day."""
+    start = next((w.get("ctl") for w in reversed(wellness) if w["id"] <= TARGET_FROM and w.get("ctl") is not None), None)
+    if start is None:
+        return None
+    d0 = date.fromisoformat(TARGET_FROM)
+    peak_day = RACE_DATE - timedelta(days=TARGET_TAPER_DAYS)
+    race_ctl = TARGET_PEAK_CTL * 0.9
+    path, d = [], d0
+    while d <= RACE_DATE:
+        if d <= peak_day:
+            v = start + (TARGET_PEAK_CTL - start) * (d - d0).days / (peak_day - d0).days
+        else:
+            v = TARGET_PEAK_CTL + (race_ctl - TARGET_PEAK_CTL) * (d - peak_day).days / TARGET_TAPER_DAYS
+        path.append([d.isoformat(), round(v, 1)])
+        d += timedelta(days=1)
+    weekly = (TARGET_PEAK_CTL - start) / ((peak_day - d0).days / 7)
+    return {"from": TARGET_FROM, "start": round(start, 1), "peak": TARGET_PEAK_CTL, "peakDay": peak_day.isoformat(),
+            "race": round(race_ctl, 1), "perWeek": round(weekly, 1), "path": path}
+
+
 def run_estimates(acts, legs, as_of):
     """10 km estimates from the race run leg and the best fresh run of 4.8 km+, known by `as_of`."""
     est = []
@@ -226,6 +269,10 @@ def main():
             row["long"] = row["dist"] >= LONG_RUN_M
             if hr:
                 row["mpb"] = (row["dist"] / row["mov"]) * 60 / hr  # metres per heartbeat
+        if sport in ("Run", "Bike") and not row["race"]:
+            z2 = z2_benchmark(a, sport)
+            if z2:
+                row["z2"] = z2
         acts.append(row)
 
         # Data-quality flags
@@ -360,6 +407,7 @@ def main():
         "race": {"date": RACE_DATE.isoformat(), "goal": GOAL_SECS, "lastSprint": LAST_SPRINT},
         "ftp": {"w": FTP_W, "from": FTP_FROM},
         "longRunM": LONG_RUN_M,
+        "target": target_path(wellness),
         "acts": acts, "well": well_rows, "plan": plan, "planExcludedStrength": excluded_strength,
         "css": {"tests": css_tests, "threshold": thr_pace},
         "curves": {k: [{"id": c.get("id"), "label": c.get("label"), "secs": c.get("secs"), "values": c.get("values")}

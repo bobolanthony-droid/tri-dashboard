@@ -21,6 +21,7 @@ DATA = ROOT / "data"
 BASE = "https://intervals.icu/api/v1"
 HISTORY_START = date(2005, 1, 1)
 OVERLAP_DAYS = 7
+STREAM_TYPES = {"Run", "VirtualRun", "TrailRun", "Ride", "VirtualRide", "GravelRide", "MountainBikeRide"}
 
 
 def load_env():
@@ -50,7 +51,7 @@ class Api:
     def get(self, path, **params):
         path = path.replace("{a}", self.athlete)
         params = {k: v for k, v in params.items() if v is not None}
-        url = BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
+        url = BASE + path + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
         for attempt in range(5):
             req = urllib.request.Request(url, headers=self.headers)
             try:
@@ -128,6 +129,20 @@ def main():
         fetched += 1
         time.sleep(0.15)
 
+    # HR/speed/power streams for runs and rides (pace and power at a fixed HR), same refetch rule
+    str_dir = DATA / "streams"
+    streams = 0
+    for a in acts.values():
+        p = str_dir / f"{a['id']}.json"
+        recent = a.get("start_date_local", "") >= recent_cut
+        if (a.get("type") not in STREAM_TYPES or "heartrate" not in (a.get("stream_types") or [])
+                or (p.exists() and not recent)):
+            continue
+        raw = api.get(f"/activity/{a['id']}/streams", types=["heartrate", "velocity_smooth", "watts"]) or []
+        write_json(p, {x["type"]: x.get("data") for x in raw})
+        streams += 1
+        time.sleep(0.15)
+
     # Wellness, merged by date
     well_p = DATA / "wellness.json"
     well = {w["id"]: w for w in read_json(well_p, [])}
@@ -151,7 +166,7 @@ def main():
     state.update(last_synced=today.isoformat(), last_run=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     write_json(state_p, state)
     print(f"Activities: {len(acts)} total, {len(new_ids)} new | intervals fetched: {fetched} | "
-          f"wellness days: {len(well)} | API calls: {api.calls}")
+          f"streams fetched: {streams} | wellness days: {len(well)} | API calls: {api.calls}")
 
 
 if __name__ == "__main__":
