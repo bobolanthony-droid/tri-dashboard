@@ -183,8 +183,9 @@ a { color: var(--accent); }
     <h3>FTP over time</h3>
     <div class="chart"><canvas id="cFtp"></canvas></div>
     <p class="small" id="ftpNote"></p>
-    <h3>Power curve</h3>
+    <h3>Power curve: before vs since your last FTP test</h3>
     <div class="chart"><canvas id="cPower"></canvas></div>
+    <p class="small">Your best average power for each duration. The solid line covers rides since your latest FTP test, the dashed line the period before it. Solid above dashed = you're stronger at that duration. Just after a test the "since" window holds few rides, so its long durations sit low until you do longer efforts.</p>
     <h3>Aerobic drift (power:HR decoupling)</h3>
     <div class="chart"><canvas id="cDrift"></canvas></div>
     <p class="small">Drift: how much HR rose relative to power from the first to the second half; under 5% indicates good aerobic durability for that duration. Only rides with both power and HR appear. Bike efficiency (EF) and power at Z2 heart rate are in Heart-rate trends.</p>
@@ -585,16 +586,22 @@ function renderPlan() {
 
 function renderSwim(sw) {
   const box = clear("cssBox");
-  const t = D.css.tests[D.css.tests.length - 1];
-  if (t) box.append(el("div", { class: "explain" },
-    el("div", {}, el("b", {}, `CSS ${fmtPace(t.css)}/100 m`), ` – from your CSS test on ${fmtD(t.date)}: 400 m ≈ ${fmtHMS(t.t400)}, 200 m ≈ ${fmtHMS(t.t200)}.`),
-    el("div", {}, `Estimated from the watch's lengths (${t.n400} + ${t.n200} continuous lengths found); intervals.icu threshold pace is ${fmtPace(D.css.threshold)}/100 m.`)));
-  else box.append(el("p", { class: "small" }, `No CSS test found. intervals.icu threshold pace: ${fmtPace(D.css.threshold)}/100 m.`));
+  const H = D.css.history, t = H[H.length - 1];
+  const how = h => (h.src === "watch" ? `estimated from the watch's lengths (400 m ≈ ${fmtHMS(h.t400)}, 200 m ≈ ${fmtHMS(h.t200)})` : "from your intervals.icu swim threshold pace");
+  const ex = el("div", { class: "explain" });
+  if (t) {
+    ex.append(el("div", {}, el("b", {}, `CSS ${fmtPace(t.css)}/100 m`), ` since your CSS test on ${fmtD(t.d)}, ${how(t)}.`));
+    if (H.length > 1) ex.append(el("div", {}, "Earlier: " + H.slice(0, -1).reverse().map(h => `${fmtPace(h.css)} on ${fmtD(h.d)}`).join(" · ") + "."));
+  } else ex.append(el("div", {}, `No CSS test result yet. Using your intervals.icu threshold pace: ${fmtPace(D.css.threshold)}/100 m.`));
+  for (const d of D.css.missed) ex.append(el("div", { class: "st-warning" },
+    `⚠ CSS test on ${fmtD(d)} found, but the watch's lengths don't show a clean 400 and 200. Enter your CSS in intervals.icu (Settings → Swim → threshold pace) and it will be used from ${fmtD(d)}.`));
+  ex.append(el("div", { class: "small" }, `A swim counts as a CSS test if it is paired with, or on the same day as, a planned workout with "CSS" in its name, or is itself named "CSS". After a test you can always set the result in intervals.icu; that value wins over the watch estimate.`));
+  box.append(ex);
   if (showEmpty("cSwim", !sw.length)) { clear("swimTable"); return; }
   const labels = sw.map(a => fmtD(a.d) + (a.swim.ow ? " OW" : ""));
   const ds = [line("Swimming lengths (rests removed)", sw.map(a => a.swim.set), COL.Swim, { pointRadius: 4, pointStyle: sw.map(a => a.swim.ow ? "triangle" : "circle") }),
               line("Average incl. rests", sw.map(a => a.swim.avg), COL.muted, { pointRadius: 3, borderDash: [4, 3] })];
-  const c = t ? t.css : D.css.threshold;
+  const c = t ? t.css : D.css.threshold;   // current CSS
   if (c) ds.push(line("CSS", sw.map(() => c), COL.good, { borderWidth: 1, borderDash: [2, 4], tension: 0 }));
   mk("cSwim", { data: { labels, datasets: ds }, options: opts({ scales: { y: { reverse: true, ticks: { callback: fmtPace } } },
     plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmtPace(c.parsed.y)}/100 m` } } } }) });
@@ -620,9 +627,9 @@ function renderBike(rides, well) {
   const KEY = [5, 15, 30, 60, 120, 300, 600, 1200, 1800, 2700, 3600, 5400, 7200];
   const fmtSec = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`;
   const pc = (D.curves.power || []).filter(c => c.secs && c.secs.length);
-  const pcol = [COL.Bike, COL.Swim];
+  const pstyle = c => (c.label.startsWith("Before") ? { color: COL.muted, more: { borderDash: [4, 3] } } : { color: COL.Bike, more: {} });
   if (!showEmpty("cPower", !pc.length, "No power data yet"))
-    mk("cPower", { type: "line", data: { datasets: pc.map((c, i) => line(c.label, c.secs.map((s, j) => ({ x: s, y: c.values[j] })).filter(p => p.y), pcol[i % 2], { tension: 0, ...(i ? { borderDash: [4, 3] } : {}) })) },
+    mk("cPower", { type: "line", data: { datasets: pc.map(c => line(c.label, c.secs.map((s, j) => ({ x: s, y: c.values[j] })).filter(p => p.y), pstyle(c).color, { tension: 0, ...pstyle(c).more })) },
       options: opts({ interaction: { mode: "nearest", axis: "x", intersect: false },
         scales: { x: { type: "logarithmic", min: 1, grid: { display: true, color: COL.grid }, ticks: { autoSkip: false, callback: v => KEY.includes(v) ? fmtSec(v) : null } }, y: { title: { display: true, text: "W", color: COL.muted } } },
         plugins: { tooltip: { callbacks: { title: it => fmtSec(it[0].parsed.x), label: c => ` ${c.dataset.label}: ${c.parsed.y} W (${Math.round(100 * c.parsed.y / D.ftp.w)}% FTP)` } } } }) });

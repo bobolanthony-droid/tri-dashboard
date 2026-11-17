@@ -130,6 +130,41 @@ def css_from_test(a, iv, pool):
             "css": (t400 - t200) / 2, "n400": len(b400), "n200": len(b200)}
 
 
+def power_label(cid, label):
+    """'r.<from>.<to>' ranges are the windows before / since the latest FTP test."""
+    if not cid or not cid.startswith("r."):
+        return label
+    _, lo, hi = cid.split(".")
+    fmt = lambda d: f"{int(d[8:])} {date.fromisoformat(d).strftime('%b')}"
+    return f"Since {fmt(lo)} FTP test" if hi >= date.today().isoformat() else f"Before ({fmt(lo)} – {fmt(hi)})"
+
+
+def css_history(acts_raw, swim_setting, attempts, tests, today):
+    """CSS over time: tests estimated from the watch's lengths, plus changes to the intervals.icu swim
+    threshold pace. A test swim still carries the old threshold, so a change is dated to the latest
+    CSS test since the previous change (else the day it first appears). On the same day, the
+    intervals.icu value wins over the watch estimate."""
+    hist = [{"d": t["date"], "css": t["css"], "src": "watch", "t400": t["t400"], "t200": t["t200"]} for t in tests]
+    swims = sorted((a for a in acts_raw if SPORTS.get(a.get("type")) == "Swim" and a.get("threshold_pace")),
+                   key=lambda a: a["start_date_local"])
+    seen = [(a["start_date_local"][:10], 100 / a["threshold_pace"]) for a in swims]
+    if swim_setting:
+        seen.append((today, 100 / swim_setting))
+    prev, last = None, ""
+    for d, v in seen:
+        if prev is not None and abs(v - prev) >= 0.5:
+            t = [x for x in attempts if last < x <= d]
+            last = t[-1] if t else d
+            hist.append({"d": last, "css": v, "src": "intervals.icu"})
+        prev = v
+    return sorted(hist, key=lambda h: (h["d"], h["src"] == "intervals.icu"))
+
+
+def css_at(hist, d, fallback):
+    """CSS in effect on day d: the latest entry on or before it, else the threshold-pace fallback."""
+    return next((h["css"] for h in reversed(hist) if h["d"] <= d), fallback)
+
+
 def bike_speed(watts, mass, cda=0.32, crr=0.005, rho=1.2, eta=0.97):
     lo, hi = 1.0, 20.0
     for _ in range(60):
@@ -222,10 +257,9 @@ def run_estimates(acts, legs, as_of):
     return est
 
 
-def leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, as_of, ftp_hist):
+def leg_times(acts, css_hist, thr_pace, mass, legs, t1, t2, as_of, ftp_hist):
     """Projected leg times using only what was known on `as_of` (same model as the main projection)."""
-    tests = [c for c in css_tests if c["date"] <= as_of]
-    css = tests[-1]["css"] if tests else thr_pace
+    css = css_at(css_hist, as_of, thr_pace)
     est = run_estimates(acts, legs, as_of)
     return {"Swim": (css + 4) * 15 if css else None, "T1": t1,
             "Bike": 40000 / bike_speed(0.80 * ftp_at(ftp_hist, as_of), mass) if ftp_at(ftp_hist, as_of) else None,
@@ -251,7 +285,10 @@ def main():
     acts, flags, css_tests = [], [], []
     combined = None
     race_day_legs = []
-    css_event_acts = {e.get("paired_activity_id") for e in events if "css" in (e.get("name") or "").lower()}
+    css_events = [e for e in events if "css" in (e.get("name") or "").lower()]
+    css_event_acts = {e.get("paired_activity_id") for e in css_events}
+    css_event_days = {e["start_date_local"][:10] for e in css_events if not e.get("paired_activity_id")}
+    css_attempts = []   # dates of swims recognised as CSS tests, whether or not a result could be read
     old_ftp_rides = 0
 
     for a in acts_raw:
@@ -288,7 +325,9 @@ def main():
             row["swim"] = swim_set_pace(a, iv)
             if hr and row["swim"]["set"] and not row["swim"]["ow"]:
                 row["mpb"] = (100 / row["swim"]["set"]) * 60 / hr  # metres per heartbeat, swimming lengths only
-            if a["id"] in css_event_acts or "css" in (a.get("name") or "").lower():
+            # A CSS test: paired with a planned "CSS" workout, named "CSS", or on the day of an unpaired one
+            if a["id"] in css_event_acts or "css" in (a.get("name") or "").lower() or d in css_event_days:
+                css_attempts.append(d)
                 c = css_from_test(a, iv, a.get("pool_length"))
                 if c:
                     css_tests.append(c)
@@ -372,9 +411,18 @@ def main():
 
     # --- Race projection ---------------------------------------------------------
     assumptions = []
-    css = css_tests[-1]["css"] if css_tests else thr_pace
-    css_src = (f"CSS test {css_tests[-1]['date']} (400 ~{css_tests[-1]['t400'] // 60}:{css_tests[-1]['t400'] % 60:02d}, "
-               f"200 ~{css_tests[-1]['t200'] // 60}:{css_tests[-1]['t200'] % 60:02d})") if css_tests else "intervals.icu swim threshold pace"
+    css_hist = css_history(acts_raw, swim_set.get("threshold_pace"), sorted(set(css_attempts)), css_tests, today)
+    css = css_at(css_hist, today, thr_pace)
+    cur = css_hist[-1] if css_hist else None
+    if not cur:
+        css_src = "intervals.icu swim threshold pace (no CSS test found)"
+    elif cur["src"] == "watch":
+        css_src = (f"CSS test {cur['d']}, estimated from the watch's lengths (400 ~{cur['t400'] // 60}:{cur['t400'] % 60:02d}, "
+                   f"200 ~{cur['t200'] // 60}:{cur['t200'] % 60:02d})")
+    else:
+        css_src = f"intervals.icu swim threshold pace, set after the CSS test on {cur['d']}"
+    # Tests whose result neither the watch nor a later intervals.icu change provides
+    css_missed = [d for d in sorted(set(css_attempts)) if not any(h["d"] == d for h in css_hist)]
     swim_pace = css + 4 if css else None
     swim_t = swim_pace * 15 if swim_pace else None
     assumptions.append(f"Swim: 1500 m at CSS + 4 s/100 m. CSS from {css_src}. Wetsuit gain assumed to cancel sighting and the mass start.")
@@ -415,7 +463,7 @@ def main():
     history = []
     d = date.fromisoformat(FTP_FROM)
     while d.isoformat() <= today:
-        L = leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, d.isoformat(), ftp_hist)
+        L = leg_times(acts, css_hist, thr_pace, mass, legs, t1, t2, d.isoformat(), ftp_hist)
         if all(v is not None for v in L.values()):
             history.append({"d": d.isoformat(), **{k: round(v) for k, v in L.items()}})
         d += timedelta(days=1)
@@ -440,9 +488,9 @@ def main():
         "longRunM": LONG_RUN_M,
         "target": target_path(wellness),
         "acts": acts, "well": well_rows, "plan": plan, "planExcludedStrength": excluded_strength,
-        "css": {"tests": css_tests, "threshold": thr_pace},
-        "curves": {k: [{"id": c.get("id"), "label": c.get("label"), "secs": c.get("secs"), "values": c.get("values")}
-                       for c in ((curves.get("power_ride") or {}).get("list") or [])] for k in ("power",)},
+        "css": {"history": css_hist, "threshold": thr_pace, "missed": css_missed},
+        "curves": {"power": [{"id": c.get("id"), "label": power_label(c.get("id"), c.get("label")), "secs": c.get("secs"), "values": c.get("values")}
+                             for c in ((curves.get("power_ride") or {}).get("list") or [])]},
         "projection": {"legs": proj, "budget": budget, "assumptions": assumptions, "cross": cross, "history": history},
         "flags": sorted(flags, key=lambda f: f["d"], reverse=True),
     }

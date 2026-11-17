@@ -156,8 +156,16 @@ def main():
                                              newest=(today + timedelta(days=240)).isoformat()) or [])
 
     # Best-effort curves (whole history + last 84 days), refreshed every run
+    # Power curve before vs since the latest FTP change (dated to its test); all-time if there is none yet.
+    from build import ftp_history   # same FTP dating rule as the dashboard
+    fh = ftp_history(list(acts.values()), read_json(DATA / "athlete.json", {}), today.isoformat())
+    if len(fh) > 1:
+        split = date.fromisoformat(fh[-1]["d"])
+        power_ranges = f"r.{fh[-2]['d']}.{split - timedelta(days=1)},r.{split}.{today}"
+    else:
+        power_ranges = "all"
     curves = {
-        "power_ride": api.get("/athlete/{a}/power-curves", type="Ride", curves="all,84d"),
+        "power_ride": api.get("/athlete/{a}/power-curves", type="Ride", curves=power_ranges),
         "pace_run": api.get("/athlete/{a}/pace-curves", type="Run", curves="all,84d"),
         "pace_swim": api.get("/athlete/{a}/pace-curves", type="Swim", curves="all,84d"),
     }
