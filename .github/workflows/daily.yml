@@ -2,7 +2,10 @@ name: Daily dashboard
 
 on:
   schedule:
-    - cron: "0 5 * * *"   # 05:00 UTC every day
+    # 08:00 Europe/London all year. Cron is UTC only, so both slots fire and the gate job
+    # cancels the one that isn't 08:00 London (07:00 UTC in summer time, 08:00 UTC in winter).
+    - cron: "0 7 * * *"
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       full_resync:
@@ -21,7 +24,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep only the 08:00 London slot
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLOT: ${{ github.event.schedule }}
+        run: |
+          off=$(TZ=Europe/London date +%z)
+          if { [ "$SLOT" = "0 7 * * *" ] && [ "$off" = "+0100" ]; } || { [ "$SLOT" = "0 8 * * *" ] && [ "$off" = "+0000" ]; }; then
+            echo "08:00 London slot ($SLOT UTC, London UTC$off): running"
+            exit 0
+          fi
+          echo "Not the 08:00 London slot ($SLOT UTC, London UTC$off): cancelling"
+          gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+          sleep 120
+
   build-deploy:
+    needs: gate
     runs-on: ubuntu-latest
     environment:
       name: github-pages

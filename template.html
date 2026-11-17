@@ -365,9 +365,10 @@ const ago = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 60 ?
 async function checkSync() {
   const st = document.getElementById("syncStatus");
   try {
-    const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/daily.yml/runs?per_page=1`, { cache: "no-store" });
+    const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/daily.yml/runs?per_page=5`, { cache: "no-store" });
     if (!r.ok) throw new Error(r.status);
-    const run = (await r.json()).workflow_runs?.[0];
+    // Skip the off-slot scheduled runs that cancel themselves (the 8am-London gate).
+    const run = ((await r.json()).workflow_runs || []).find(x => !(x.event === "schedule" && x.conclusion === "cancelled"));
     if (!run) { st.textContent = "No sync runs yet"; return; }
     const done = run.status === "completed", t = new Date(run.updated_at);
     const how = run.event === "schedule" ? "daily" : "manual";
