@@ -24,8 +24,9 @@ OUT = ROOT / "site" / "index.html"
 RACE_DATE = date(2027, 4, 15)           # "mid-April 2027"
 GOAL_SECS = 3 * 3600
 LAST_SPRINT = "1:28"
-FTP_W = 176                             # Zwift ramp test
-FTP_FROM = "2026-10-05"                 # older FTP values are ignored
+FTP_FROM = "2026-10-05"                 # FTP values before this date are ignored
+FTP_BASELINE = 176                      # Zwift ramp test on FTP_FROM; later values come from intervals.icu
+FTP_TEST_WORDS = ("ramp test", "ftp test")
 COMBINED_RACE_DATE = "2026-09-13"       # sprint tri logged as one 26.7 km "run"
 LONG_RUN_M = 6000                       # runs at/above this count as "longer"
 SWIM_REST_FACTOR = 1.35                 # a length slower than 1.35x median includes rest
@@ -180,6 +181,33 @@ def target_path(wellness):
             "race": round(race_ctl, 1), "perWeek": round(weekly, 1), "path": path}
 
 
+def ftp_history(acts_raw, athlete, today):
+    """FTP over time: the baseline, then intervals.icu's FTP as recorded on each later ride plus the
+    current Ride setting. A test ride still carries the old FTP, so a new value is dated to the latest
+    ramp/FTP test since the previous change, or else to the day it first appears."""
+    hist = [{"d": FTP_FROM, "w": FTP_BASELINE, "src": "Zwift ramp test"}]
+    rides = sorted((a for a in acts_raw if SPORTS.get(a.get("type")) == "Bike" and a["start_date_local"][:10] > FTP_FROM),
+                   key=lambda a: a["start_date_local"])
+    seen = [(a["start_date_local"][:10], a["icu_ftp"]) for a in rides if a.get("icu_ftp")]
+    setting = next((x.get("ftp") for x in athlete.get("sportSettings", []) if "Ride" in (x.get("types") or [])), None)
+    if setting:
+        seen.append((today, setting))
+    tests = [(a["start_date_local"][:10], a.get("name") or "FTP test") for a in rides
+             if any(w in (a.get("name") or "").lower() for w in FTP_TEST_WORDS)]
+    for d, w in seen:
+        if w == hist[-1]["w"]:
+            continue
+        t = [x for x in tests if hist[-1]["d"] < x[0] <= d]
+        when, src = t[-1] if t else (d, "intervals.icu FTP setting" if d == today else "FTP on your rides")
+        hist.append({"d": when, "w": w, "src": src})
+    return hist
+
+
+def ftp_at(hist, d):
+    """FTP in effect on day d (None before the baseline)."""
+    return next((h["w"] for h in reversed(hist) if h["d"] <= d), None)
+
+
 def run_estimates(acts, legs, as_of):
     """10 km estimates from the race run leg and the best fresh run of 4.8 km+, known by `as_of`."""
     est = []
@@ -194,13 +222,13 @@ def run_estimates(acts, legs, as_of):
     return est
 
 
-def leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, as_of):
+def leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, as_of, ftp_hist):
     """Projected leg times using only what was known on `as_of` (same model as the main projection)."""
     tests = [c for c in css_tests if c["date"] <= as_of]
     css = tests[-1]["css"] if tests else thr_pace
     est = run_estimates(acts, legs, as_of)
     return {"Swim": (css + 4) * 15 if css else None, "T1": t1,
-            "Bike": 40000 / bike_speed(0.80 * FTP_W, mass) if as_of >= FTP_FROM else None,
+            "Bike": 40000 / bike_speed(0.80 * ftp_at(ftp_hist, as_of), mass) if ftp_at(ftp_hist, as_of) else None,
             "T2": t2, "Run": statistics.mean(t for _, t in est) if est else None}
 
 
@@ -295,7 +323,8 @@ def main():
                              "It also pollutes intervals.icu's run pace curve - consider changing its type there."})
     if old_ftp_rides:
         flags.append({"d": FTP_FROM, "kind": "Old FTP",
-                      "msg": f"{old_ftp_rides} ride(s) before {FTP_FROM} carry an old FTP (250 W); ignored, {FTP_W} W used from {FTP_FROM}"})
+                      "msg": f"{old_ftp_rides} ride(s) before {FTP_FROM} carry an old FTP (250 W); ignored. From {FTP_FROM} the FTP is "
+                             f"{FTP_BASELINE} W, then whatever intervals.icu records after each new test"})
 
     well_rows = []
     for w in wellness:
@@ -351,10 +380,12 @@ def main():
     assumptions.append(f"Swim: 1500 m at CSS + 4 s/100 m. CSS from {css_src}. Wetsuit gain assumed to cancel sighting and the mass start.")
 
     mass = (weight or 75) + 9
-    race_w = 0.80 * FTP_W
+    ftp_hist = ftp_history(acts_raw, athlete, today)
+    ftp_now = ftp_hist[-1]
+    race_w = 0.80 * ftp_now["w"]
     v = bike_speed(race_w, mass)
     bike_t = 40000 / v
-    assumptions.append(f"Bike: 40 km flat, no wind, at 80% of FTP {FTP_W} W = {race_w:.0f} W; CdA 0.32 m² (road bike, drops), "
+    assumptions.append(f"Bike: 40 km flat, no wind, at 80% of FTP {ftp_now['w']} W (since {ftp_now['d']}, {ftp_now['src']}) = {race_w:.0f} W; CdA 0.32 m² (road bike, drops), "
                        f"Crr 0.005, rider {f'{weight:.0f} kg (intervals.icu)' if weight else '75 kg (no weight in intervals.icu)'} + 9 kg bike "
                        f"-> {v * 3.6:.1f} km/h.")
 
@@ -384,7 +415,7 @@ def main():
     history = []
     d = date.fromisoformat(FTP_FROM)
     while d.isoformat() <= today:
-        L = leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, d.isoformat())
+        L = leg_times(acts, css_tests, thr_pace, mass, legs, t1, t2, d.isoformat(), ftp_hist)
         if all(v is not None for v in L.values()):
             history.append({"d": d.isoformat(), **{k: round(v) for k, v in L.items()}})
         d += timedelta(days=1)
@@ -405,7 +436,7 @@ def main():
         "generatedUtc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "lastSync": state.get("last_run"),
         "race": {"date": RACE_DATE.isoformat(), "goal": GOAL_SECS, "lastSprint": LAST_SPRINT},
-        "ftp": {"w": FTP_W, "from": FTP_FROM},
+        "ftp": {"w": ftp_now["w"], "history": ftp_hist},
         "longRunM": LONG_RUN_M,
         "target": target_path(wellness),
         "acts": acts, "well": well_rows, "plan": plan, "planExcludedStrength": excluded_strength,

@@ -607,11 +607,15 @@ function renderSwim(sw) {
 function renderBike(rides, well) {
   const dd = days(), wm = Object.fromEntries(D.well.map(w => [w.d, w]));
   const eftp = dd.map(d => wm[d]?.eftp != null ? Math.round(wm[d].eftp) : null);
-  const ftp = dd.map(d => d >= D.ftp.from ? D.ftp.w : null);
+  const ftpOn = d => { const h = [...D.ftp.history].reverse().find(h => h.d <= d); return h ? h.w : null; };
+  const ftp = dd.map(ftpOn);
   if (!showEmpty("cFtp", eftp.every(v => v == null) && ftp.every(v => v == null)))
-    mk("cFtp", { data: { labels: dd.map(fmtD), datasets: [line("FTP (ramp test)", ftp, COL.Bike, { stepped: true, tension: 0 }), line("eFTP (intervals.icu estimate)", eftp, COL.muted, { borderDash: [4, 3] })] },
+    mk("cFtp", { data: { labels: dd.map(fmtD), datasets: [line("FTP", ftp, COL.Bike, { stepped: true, tension: 0 }), line("eFTP (intervals.icu estimate)", eftp, COL.muted, { borderDash: [4, 3] })] },
       options: opts({ plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y} W` } } } }) });
-  document.getElementById("ftpNote").textContent = `FTP ${D.ftp.w} W from the Zwift ramp test on ${fmtD(D.ftp.from)}; older FTP values are ignored. eFTP is intervals.icu's rolling estimate from your rides.`;
+  const fh = D.ftp.history, prev = fh.length > 1 ? fh[fh.length - 2] : null, cur = fh[fh.length - 1];
+  document.getElementById("ftpNote").textContent = `FTP ${cur.w} W since ${fmtD(cur.d)} (${cur.src})` +
+    (prev ? `, up from ${prev.w} W (${prev.w ? `${cur.w - prev.w >= 0 ? "+" : "−"}${Math.abs(cur.w - prev.w)} W` : ""}).` : ".") +
+    ` Read from intervals.icu each morning: update your FTP there (or let Zwift sync it) after a test. Values before ${fmtD(fh[0].d)} are ignored. eFTP is intervals.icu's rolling estimate from your rides.`;
 
   const KEY = [5, 15, 30, 60, 120, 300, 600, 1200, 1800, 2700, 3600, 5400, 7200];
   const fmtSec = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(s % 3600 ? 1 : 0)}h`;
